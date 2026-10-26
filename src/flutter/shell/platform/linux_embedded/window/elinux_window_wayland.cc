@@ -1635,12 +1635,7 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
         qt_surface_extension_, native_window_->Surface());
     qt_extended_surface_add_listener(qt_extended_surface_,
                                      &kQtExtendedSurfaceListener, this);
-    qt_extended_surface_set_content_orientation_mask(
-        qt_extended_surface_,
-        QT_EXTENDED_SURFACE_ORIENTATION_PORTRAITORIENTATION |
-            QT_EXTENDED_SURFACE_ORIENTATION_LANDSCAPEORIENTATION |
-            QT_EXTENDED_SURFACE_ORIENTATION_INVERTEDPORTRAITORIENTATION |
-            QT_EXTENDED_SURFACE_ORIENTATION_INVERTEDLANDSCAPEORIENTATION);
+    UpdateContentOrientationMask();
     qt_extended_surface_set_window_flags(qt_extended_surface_, 0);
   } else {
     xdg_surface_ =
@@ -2306,8 +2301,14 @@ bool ELinuxWindowWayland::IsCoverConfigure(int32_t width,
 void ELinuxWindowWayland::MaybeApplyOutputTransform() {
   // Without a cover window of its own, Lipstick scales this window into the
   // portrait app cover, so draw portrait while shown as a cover.
-  const int32_t target =
-      shown_as_cover_ ? WL_OUTPUT_TRANSFORM_NORMAL : transform_;
+  int32_t target = shown_as_cover_ ? WL_OUTPUT_TRANSFORM_NORMAL : transform_;
+  // Respect the app's preferred orientations: stay put when the new one isn't
+  // allowed, or move to the most preferred one if the current one isn't.
+  if (!IsTransformAllowed(target)) {
+    target = IsTransformAllowed(applied_transform_)
+                 ? applied_transform_
+                 : preferred_transforms_.front();
+  }
   if (!FollowsOutputTransform() || target == applied_transform_) {
     return;
   }
@@ -2378,6 +2379,56 @@ int32_t ELinuxWindowWayland::GetContentOrientationAngle() const {
     default:
       return 0;
   }
+}
+
+void ELinuxWindowWayland::SetPreferredOrientations(
+    const std::vector<DeviceOrientation>& orientations) {
+  // In wl_output transform terms, as Lipstick sends them for a portrait panel.
+  preferred_transforms_.clear();
+  for (const auto orientation : orientations) {
+    switch (orientation) {
+      case DeviceOrientation::kPortraitUp:
+        preferred_transforms_.push_back(WL_OUTPUT_TRANSFORM_NORMAL);
+        break;
+      case DeviceOrientation::kLandscapeLeft:
+        preferred_transforms_.push_back(WL_OUTPUT_TRANSFORM_270);
+        break;
+      case DeviceOrientation::kPortraitDown:
+        preferred_transforms_.push_back(WL_OUTPUT_TRANSFORM_180);
+        break;
+      case DeviceOrientation::kLandscapeRight:
+        preferred_transforms_.push_back(WL_OUTPUT_TRANSFORM_90);
+        break;
+    }
+  }
+  UpdateContentOrientationMask();
+  MaybeApplyOutputTransform();
+}
+
+bool ELinuxWindowWayland::IsTransformAllowed(int32_t transform) const {
+  return preferred_transforms_.empty() ||
+         std::find(preferred_transforms_.begin(), preferred_transforms_.end(),
+                   transform) != preferred_transforms_.end();
+}
+
+void ELinuxWindowWayland::UpdateContentOrientationMask() {
+  if (!qt_extended_surface_) {
+    return;
+  }
+  int32_t mask = 0;
+  if (IsTransformAllowed(WL_OUTPUT_TRANSFORM_NORMAL)) {
+    mask |= QT_EXTENDED_SURFACE_ORIENTATION_PORTRAITORIENTATION;
+  }
+  if (IsTransformAllowed(WL_OUTPUT_TRANSFORM_270)) {
+    mask |= QT_EXTENDED_SURFACE_ORIENTATION_LANDSCAPEORIENTATION;
+  }
+  if (IsTransformAllowed(WL_OUTPUT_TRANSFORM_180)) {
+    mask |= QT_EXTENDED_SURFACE_ORIENTATION_INVERTEDPORTRAITORIENTATION;
+  }
+  if (IsTransformAllowed(WL_OUTPUT_TRANSFORM_90)) {
+    mask |= QT_EXTENDED_SURFACE_ORIENTATION_INVERTEDLANDSCAPEORIENTATION;
+  }
+  qt_extended_surface_set_content_orientation_mask(qt_extended_surface_, mask);
 }
 
 void ELinuxWindowWayland::MaybeUpdateDevicePixelRatio() {

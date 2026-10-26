@@ -26,12 +26,30 @@ constexpr char kChannelName[] = "flutter/platform";
 constexpr char kGetClipboardDataMethod[] = "Clipboard.getData";
 constexpr char kSetClipboardDataMethod[] = "Clipboard.setData";
 constexpr char kSystemNavigatorPopMethod[] = "SystemNavigator.pop";
+constexpr char kSetPreferredOrientationsMethod[] =
+    "SystemChrome.setPreferredOrientations";
 
 constexpr char kTextPlainFormat[] = "text/plain";
 constexpr char kTextKey[] = "text";
 
 constexpr char kUnknownClipboardFormatError[] =
     "Unknown clipboard format error";
+
+bool ParseDeviceOrientation(const std::string& name,
+                            DeviceOrientation* orientation) {
+  if (name == "DeviceOrientation.portraitUp") {
+    *orientation = DeviceOrientation::kPortraitUp;
+  } else if (name == "DeviceOrientation.landscapeLeft") {
+    *orientation = DeviceOrientation::kLandscapeLeft;
+  } else if (name == "DeviceOrientation.portraitDown") {
+    *orientation = DeviceOrientation::kPortraitDown;
+  } else if (name == "DeviceOrientation.landscapeRight") {
+    *orientation = DeviceOrientation::kLandscapeRight;
+  } else {
+    return false;
+  }
+  return true;
+}
 }  // namespace
 
 PlatformPlugin::PlatformPlugin(BinaryMessenger* messenger,
@@ -80,6 +98,21 @@ void PlatformPlugin::HandleMethodCall(
       return;
     }
     delegate_->SetClipboardData(itr->value.GetString());
+    result->Success();
+  } else if (method.compare(kSetPreferredOrientationsMethod) == 0) {
+    // A list of DeviceOrientation names, most preferred first.
+    std::vector<DeviceOrientation> orientations;
+    const rapidjson::Value* args = method_call.arguments();
+    if (args && args->IsArray()) {
+      for (const auto& value : args->GetArray()) {
+        DeviceOrientation orientation;
+        if (value.IsString() &&
+            ParseDeviceOrientation(value.GetString(), &orientation)) {
+          orientations.push_back(orientation);
+        }
+      }
+    }
+    delegate_->SetPreferredOrientations(orientations);
     result->Success();
   } else if (method.compare(kSystemNavigatorPopMethod) == 0) {
     // todo: it is necessary to consider whether exit() is okay

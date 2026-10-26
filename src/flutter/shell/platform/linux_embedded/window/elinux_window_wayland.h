@@ -93,6 +93,10 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   int32_t GetContentOrientationAngle() const override;
 
   // |FlutterWindowBindingHandler|
+  void SetPreferredOrientations(
+      const std::vector<DeviceOrientation>& orientations) override;
+
+  // |FlutterWindowBindingHandler|
   void UpdateVirtualKeyboardArea(int32_t x,
                                  int32_t y,
                                  int32_t width,
@@ -134,6 +138,8 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   // Follows the wl_output transform that Lipstick sends on rotation.
   void MaybeApplyOutputTransform();
   bool FollowsOutputTransform() const;
+  bool IsTransformAllowed(int32_t transform) const;
+  void UpdateContentOrientationMask();
 
   bool IsCoverConfigure(int32_t width, int32_t height) const;
 
@@ -263,6 +269,8 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   qt_surface_extension* qt_surface_extension_ = nullptr;
   qt_extended_surface* qt_extended_surface_ = nullptr;
   bool shown_as_cover_ = false;
+  // Allowed wl_output transforms, most preferred first; empty allows any.
+  std::vector<int32_t> preferred_transforms_;
 };
 
 }  // namespace flutter

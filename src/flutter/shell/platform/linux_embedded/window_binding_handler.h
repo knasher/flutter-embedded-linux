@@ -7,6 +7,7 @@
 
 #include <string>
 #include <variant>
+#include <vector>
 
 #include "flutter/shell/platform/linux_embedded/public/flutter_elinux.h"
 #include "flutter/shell/platform/linux_embedded/surface/surface_gl.h"
@@ -27,6 +28,14 @@ struct PhysicalViewInsets {
   double right = 0;
   double bottom = 0;
   double left = 0;
+};
+
+// Orientations from SystemChrome.setPreferredOrientations.
+enum class DeviceOrientation {
+  kPortraitUp,
+  kLandscapeLeft,
+  kPortraitDown,
+  kLandscapeRight,
 };
 
 using ELinuxRenderSurfaceTarget = SurfaceGl;
@@ -94,6 +103,11 @@ class WindowBindingHandler {
   // Returns the angle (0, 90, 180 or 270) of the content orientation relative
   // to the display's native orientation, as Maliit's appOrientation expects.
   virtual int32_t GetContentOrientationAngle() const { return 0; }
+
+  // Sets the orientations the app allows, most preferred first. An empty list
+  // allows any orientation.
+  virtual void SetPreferredOrientations(
+      const std::vector<DeviceOrientation>& orientations) {}
 
   // Returns the clipboard data.
   virtual std::string GetClipboardData() = 0;
