@@ -140,6 +140,29 @@ void FlutterELinuxView::OnContentOrientationChanged() {
   }
 }
 
+void FlutterELinuxView::OnAppVisibilityChanged(AppVisibility visibility) {
+  if (!lifecycle_handler_ || app_visibility_ == visibility) {
+    return;
+  }
+  app_visibility_ = visibility;
+  // The framework fills in the states between, e.g. inactive and hidden
+  // between resumed and paused.
+  switch (visibility) {
+    case AppVisibility::kForeground:
+      ELINUX_LOG(INFO) << "App lifecycle: resumed";
+      lifecycle_handler_->OnResumed();
+      break;
+    case AppVisibility::kThumbnail:
+      ELINUX_LOG(INFO) << "App lifecycle: hidden";
+      lifecycle_handler_->OnHidden();
+      break;
+    case AppVisibility::kBackground:
+      ELINUX_LOG(INFO) << "App lifecycle: paused";
+      lifecycle_handler_->OnPaused();
+      break;
+  }
+}
+
 void FlutterELinuxView::OnCoverChanged() {
   if (cover_handler_) {
     cover_handler_->SendCoverState();
@@ -438,6 +461,8 @@ void FlutterELinuxView::SendInitialBounds() {
   if (cover_handler_) {
     cover_handler_->SendCoverState();
   }
+  // The app starts in front; the compositor only reports changes.
+  OnAppVisibilityChanged(AppVisibility::kForeground);
 }
 
 // Set's |event_data|'s phase to either kMove or kHover depending on the current
