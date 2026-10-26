@@ -97,7 +97,7 @@ class FlutterELinuxView : public WindowBindingHandlerDelegate {
   void OnContentOrientationChanged() override;
 
   // |WindowBindingHandlerDelegate|
-  void OnShownAsCoverChanged(bool shown_as_cover) override;
+  void OnCoverChanged() override;
 
   // |WindowBindingHandlerDelegate|
   void OnPointerMove(double x_px, double y_px) override;

@@ -104,6 +104,14 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   void SetCoverActions(const std::string& actions) override;
 
   // |FlutterWindowBindingHandler|
+  CoverState GetCoverState() const override;
+
+  // |FlutterWindowBindingHandler|
+  void SetCoverFrame(int32_t width,
+                     int32_t height,
+                     const uint8_t* rgba) override;
+
+  // |FlutterWindowBindingHandler|
   void UpdateVirtualKeyboardArea(int32_t x,
                                  int32_t y,
                                  int32_t width,
@@ -143,6 +151,9 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   void MaybeUpdateDevicePixelRatio();
 
   // Follows the wl_output transform that Lipstick sends on rotation.
+  // Starts or stops drawing as the app's cover.
+  void SetShownAsCover(bool shown_as_cover);
+
   void MaybeApplyOutputTransform();
   bool FollowsOutputTransform() const;
   bool IsTransformAllowed(int32_t transform) const;
@@ -283,14 +294,8 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
 
   // _APP_COVER_ACTION value; kept until the extended surface exists.
   std::string cover_actions_;
-
-  // Test cover window (FLUTTER_SFOS_COVER=test), with frame callback counts
-  // for the main and cover windows logged once a second.
-  bool cover_test_ = false;
+  // The app's cover window, once the app has drawn a cover.
   std::unique_ptr<CoverWindowWayland> cover_window_;
-  int32_t main_visibility_ = -1;
-  uint32_t main_frame_count_ = 0;
-  uint64_t cover_stats_time_nanos_ = 0;
 };
 
 }  // namespace flutter

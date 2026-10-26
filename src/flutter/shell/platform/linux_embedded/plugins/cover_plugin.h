@@ -19,28 +19,34 @@
 
 namespace flutter {
 
-// The app's cover on Sailfish OS, on the flutter-sfos/cover channel.
+// The app's cover on Sailfish OS.
 //
-// An app without a cover window is shown on the home screen as a shrunken
-// copy of its main window. The app can draw a cover layout while this is the
-// case, and its normal layout again when it returns.
+// On flutter-sfos/cover (JSON) the app is told whether it can have a cover,
+// whether Lipstick shows it and its size. It sends the pictures to show on
+// flutter-sfos/cover_frame; the first one creates the cover window, which
+// Lipstick then shows in the app's cover tile instead of the main window.
 //
-// Cover buttons are drawn by the home screen from the _APP_COVER_ACTION window
-// property, which names a D-Bus service of ours and a method to call when one
-// is tapped. Test version: FLUTTER_SFOS_COVER_ACTION_TEST=1 publishes one
-// button, and taps are sent to the app.
+// The app can also give the cover buttons, which the home screen draws from
+// the _APP_COVER_ACTION window property. That names a D-Bus service of ours
+// and the method the home screen calls when a button is tapped; the taps are
+// passed on to the app.
 class CoverPlugin {
  public:
   CoverPlugin(BinaryMessenger* messenger, WindowBindingHandler* delegate);
   ~CoverPlugin();
 
-  void SendShownAsCover(bool shown_as_cover);
+  void SendCoverState();
 
   // Sends the cover button taps received since the last call. Must be called
   // on the platform thread.
   void DispatchEvent();
 
  private:
+  void HandleMessage(const rapidjson::Document& message);
+
+  // A picture: width and height (uint32, little-endian), then RGBA pixels.
+  void HandleFrame(const uint8_t* message, size_t size);
+
   // Owns a D-Bus name for the home screen to call; returns false on failure.
   bool RegisterActionService();
 
@@ -50,6 +56,7 @@ class CoverPlugin {
                                      gboolean incoming,
                                      gpointer user_data);
 
+  BinaryMessenger* messenger_;
   std::unique_ptr<BasicMessageChannel<rapidjson::Document>> channel_;
   WindowBindingHandler* delegate_;
   GDBusConnection* bus_ = nullptr;

@@ -9,8 +9,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
-#include <cstring>
 
 #include "flutter/shell/platform/common/json_message_codec.h"
 #include "flutter/shell/platform/linux_embedded/logger.h"
@@ -19,16 +17,34 @@ namespace flutter {
 
 namespace {
 constexpr char kChannelName[] = "flutter-sfos/cover";
+constexpr char kFrameChannelName[] = "flutter-sfos/cover_frame";
 
-// Bumped on incompatible changes to the message.
+// Bumped on incompatible changes to the messages.
 constexpr int kMessageVersion = 1;
 
 constexpr char kVersion[] = "version";
-constexpr char kShownAsCover[] = "shownAsCover";
+constexpr char kAvailable[] = "available";
+constexpr char kVisible[] = "visible";
+constexpr char kWidth[] = "width";
+constexpr char kHeight[] = "height";
+constexpr char kActions[] = "actions";
 constexpr char kAction[] = "action";
+constexpr char kId[] = "id";
+constexpr char kIcon[] = "icon";
 
 // The home screen calls this method, with the button's id, on our service.
 constexpr char kTriggerMethod[] = "trigger";
+
+// Theme icon names (e.g. "icon-cover-refresh") get this prefix.
+constexpr char kThemeIconPrefix[] = "image://theme/";
+
+// Pictures are sent at the cover's size, so anything far bigger is a mistake.
+constexpr uint32_t kMaxFrameSide = 4096;
+
+uint32_t ReadU32(const uint8_t* bytes) {
+  return bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) |
+         (static_cast<uint32_t>(bytes[3]) << 24);
+}
 
 // org.freedesktop.DBus RequestName flag and reply.
 constexpr guint32 kDoNotQueue = 4;
@@ -47,27 +63,41 @@ std::string NameElement(const char* name) {
   }
   return out;
 }
+
+// The action list is newline-separated text in an ASCII window property.
+bool IsValidIcon(const std::string& icon) {
+  return !icon.empty() && std::all_of(icon.begin(), icon.end(), [](char c) {
+    return c > ' ' && c < 0x7f;
+  });
+}
 }  // namespace
 
 CoverPlugin::CoverPlugin(BinaryMessenger* messenger,
                          WindowBindingHandler* delegate)
-    : channel_(std::make_unique<BasicMessageChannel<rapidjson::Document>>(
+    : messenger_(messenger),
+      channel_(std::make_unique<BasicMessageChannel<rapidjson::Document>>(
           messenger,
           kChannelName,
           &JsonMessageCodec::GetInstance())),
       delegate_(delegate) {
-  const char* env = std::getenv("FLUTTER_SFOS_COVER_ACTION_TEST");
-  if (env && std::strcmp(env, "1") == 0 && RegisterActionService()) {
-    // One action per "<service>\n<method>\n<id>\n<icon>", joined by
-    // newlines, then a trailing "\n0" (as other apps send it).
-    const std::string actions = service_ + "\n" + kTriggerMethod +
-                                "\n0\nimage://theme/icon-cover-refresh\n0";
-    delegate_->SetCoverActions(actions);
-    ELINUX_LOG(INFO) << "Cover action test: " << service_;
-  }
+  channel_->SetMessageHandler(
+      [this](const rapidjson::Document& message,
+             const MessageReply<rapidjson::Document>& reply) {
+        HandleMessage(message);
+        reply(rapidjson::Document());
+      });
+  messenger_->SetMessageHandler(
+      kFrameChannelName,
+      [this](const uint8_t* message, size_t size, BinaryReply reply) {
+        HandleFrame(message, size);
+        if (reply) {
+          reply(nullptr, 0);
+        }
+      });
 }
 
 CoverPlugin::~CoverPlugin() {
+  messenger_->SetMessageHandler(kFrameChannelName, nullptr);
   if (bus_) {
     if (filter_id_) {
       g_dbus_connection_remove_filter(bus_, filter_id_);
@@ -76,13 +106,35 @@ CoverPlugin::~CoverPlugin() {
   }
 }
 
-void CoverPlugin::SendShownAsCover(bool shown_as_cover) {
+void CoverPlugin::SendCoverState() {
+  const CoverState state = delegate_->GetCoverState();
   rapidjson::Document message(rapidjson::kObjectType);
   auto& allocator = message.GetAllocator();
   message.AddMember(kVersion, kMessageVersion, allocator);
-  message.AddMember(kShownAsCover, shown_as_cover, allocator);
-  ELINUX_LOG(INFO) << "Shown as cover: " << shown_as_cover;
+  message.AddMember(kAvailable, state.available, allocator);
+  message.AddMember(kVisible, state.visible, allocator);
+  message.AddMember(kWidth, state.width, allocator);
+  message.AddMember(kHeight, state.height, allocator);
+  ELINUX_LOG(INFO) << "Cover: " << (state.visible ? "shown" : "hidden") << ", "
+                   << state.width << "x" << state.height;
   channel_->Send(message);
+}
+
+void CoverPlugin::HandleFrame(const uint8_t* message, size_t size) {
+  if (!message || size < 8) {
+    ELINUX_LOG(ERROR) << "Cover: picture too short";
+    return;
+  }
+  const uint32_t width = ReadU32(message);
+  const uint32_t height = ReadU32(message + 4);
+  if (width == 0 || height == 0 || width > kMaxFrameSide ||
+      height > kMaxFrameSide ||
+      size != 8 + static_cast<size_t>(width) * height * 4) {
+    ELINUX_LOG(ERROR) << "Cover: picture size doesn't match";
+    return;
+  }
+  delegate_->SetCoverFrame(static_cast<int32_t>(width),
+                           static_cast<int32_t>(height), message + 8);
 }
 
 void CoverPlugin::DispatchEvent() {
@@ -101,6 +153,46 @@ void CoverPlugin::DispatchEvent() {
   }
 }
 
+void CoverPlugin::HandleMessage(const rapidjson::Document& message) {
+  if (!message.IsObject() || !message.HasMember(kActions) ||
+      !message[kActions].IsArray()) {
+    ELINUX_LOG(ERROR) << "Cover: unexpected message";
+    return;
+  }
+
+  // Each button is "<service>\n<method>\n<id>\n<icon>", joined by newlines,
+  // then a trailing "\n0" (as other apps send it).
+  std::string actions;
+  for (const auto& action : message[kActions].GetArray()) {
+    if (!action.IsObject() || !action.HasMember(kId) ||
+        !action[kId].IsInt() || action[kId].GetInt() < 0 ||
+        !action.HasMember(kIcon) || !action[kIcon].IsString()) {
+      ELINUX_LOG(ERROR) << "Cover: each action needs an id and an icon";
+      return;
+    }
+    std::string icon = action[kIcon].GetString();
+    if (!IsValidIcon(icon)) {
+      ELINUX_LOG(ERROR) << "Cover: invalid icon name";
+      return;
+    }
+    if (icon.find("://") == std::string::npos && icon[0] != '/') {
+      icon.insert(0, kThemeIconPrefix);
+    }
+    if (service_.empty() && !RegisterActionService()) {
+      return;
+    }
+    if (!actions.empty()) {
+      actions += "\n";
+    }
+    actions += service_ + "\n" + kTriggerMethod + "\n" +
+               std::to_string(action[kId].GetInt()) + "\n" + icon;
+  }
+  if (!actions.empty()) {
+    actions += "\n0";
+  }
+  delegate_->SetCoverActions(actions);
+}
+
 bool CoverPlugin::RegisterActionService() {
   GError* error = nullptr;
   bus_ = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
@@ -111,16 +203,13 @@ bool CoverPlugin::RegisterActionService() {
   }
 
   // The pattern other Sailfish apps use for their cover action service.
-  service_ = std::string("org.sailfishos.coveraction.") +
-             NameElement(program_invocation_short_name) + ".pid" +
-             std::to_string(getpid()) + ".id1";
-  path_ = "/" + service_;
-  std::replace(path_.begin(), path_.end(), '.', '/');
-
+  const std::string service = std::string("org.sailfishos.coveraction.") +
+                              NameElement(program_invocation_short_name) +
+                              ".pid" + std::to_string(getpid()) + ".id1";
   GVariant* reply = g_dbus_connection_call_sync(
       bus_, "org.freedesktop.DBus", "/org/freedesktop/DBus",
       "org.freedesktop.DBus", "RequestName",
-      g_variant_new("(su)", service_.c_str(), kDoNotQueue),
+      g_variant_new("(su)", service.c_str(), kDoNotQueue),
       G_VARIANT_TYPE("(u)"), G_DBUS_CALL_FLAGS_NONE, -1, nullptr, &error);
   if (!reply) {
     ELINUX_LOG(ERROR) << "Cover actions: RequestName failed: "
@@ -132,13 +221,17 @@ bool CoverPlugin::RegisterActionService() {
   g_variant_get(reply, "(u)", &result);
   g_variant_unref(reply);
   if (result != kPrimaryOwner) {
-    ELINUX_LOG(ERROR) << "Cover actions: could not own " << service_;
+    ELINUX_LOG(ERROR) << "Cover actions: could not own " << service;
     return false;
   }
 
+  service_ = service;
+  path_ = "/" + service_;
+  std::replace(path_.begin(), path_.end(), '.', '/');
   // GDBus only routes calls that name an interface to registered objects,
   // and the home screen's call may not, so catch it with a filter instead.
   filter_id_ = g_dbus_connection_add_filter(bus_, FilterMessage, this, nullptr);
+  ELINUX_LOG(INFO) << "Cover actions: " << service_;
   return true;
 }
 
@@ -154,13 +247,8 @@ GDBusMessage* CoverPlugin::FilterMessage(GDBusConnection* connection,
     return message;
   }
 
-  const char* member = g_dbus_message_get_member(message);
-  const char* signature = g_dbus_message_get_signature(message);
-  ELINUX_LOG(INFO) << "Cover action call: " << (member ? member : "")
-                   << " (" << (signature ? signature : "") << ")";
-
   GDBusMessage* reply;
-  if (g_strcmp0(member, kTriggerMethod) == 0) {
+  if (g_strcmp0(g_dbus_message_get_member(message), kTriggerMethod) == 0) {
     int32_t id = -1;
     GVariant* body = g_dbus_message_get_body(message);
     if (body && g_variant_is_of_type(body, G_VARIANT_TYPE("(i)"))) {

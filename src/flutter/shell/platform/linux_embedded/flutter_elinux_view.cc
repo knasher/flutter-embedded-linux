@@ -140,9 +140,9 @@ void FlutterELinuxView::OnContentOrientationChanged() {
   }
 }
 
-void FlutterELinuxView::OnShownAsCoverChanged(bool shown_as_cover) {
+void FlutterELinuxView::OnCoverChanged() {
   if (cover_handler_) {
-    cover_handler_->SendShownAsCover(shown_as_cover);
+    cover_handler_->SendCoverState();
   }
 }
 
@@ -434,6 +434,9 @@ void FlutterELinuxView::SendInitialBounds() {
   // The shell is only chosen once the render surface exists.
   if (display_cutout_handler_) {
     display_cutout_handler_->SendDisplayCutouts();
+  }
+  if (cover_handler_) {
+    cover_handler_->SendCoverState();
   }
 }
 

@@ -7,7 +7,6 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <string>
 
 #include "flutter/shell/platform/linux_embedded/logger.h"
@@ -35,18 +34,15 @@ const wl_shell_surface_listener CoverWindowWayland::kShellSurfaceListener = {
            uint32_t edges,
            int32_t width,
            int32_t height) {
-          ELINUX_LOG(INFO) << "Cover configure: " << width << "x" << height;
           auto self = reinterpret_cast<CoverWindowWayland*>(data);
           if (width <= 0 || height <= 0 ||
               (width == self->width_ && height == self->height_)) {
             return;
           }
+          ELINUX_LOG(INFO) << "Cover size: " << width << "x" << height;
           self->width_ = width;
           self->height_ = height;
-          self->DestroyBuffers();
-          if (self->CreateBuffers()) {
-            self->Draw();
-          }
+          self->on_changed_();
         },
     .popup_done = [](void* data, wl_shell_surface* wl_shell_surface) {},
 };
@@ -57,37 +53,20 @@ const qt_extended_surface_listener
             [](void* data,
                qt_extended_surface* qt_extended_surface,
                int32_t visible) {
-              ELINUX_LOG(INFO) << "Cover onscreen_visibility: " << visible;
               auto self = reinterpret_cast<CoverWindowWayland*>(data);
-              self->visibility_ = visible;
-              if (visible != 0 && !self->frame_callback_) {
-                self->Draw();
+              if ((visible != 0) == self->visible()) {
+                self->visibility_ = visible;
+                return;
               }
+              self->visibility_ = visible;
+              self->on_changed_();
             },
         .set_generic_property =
             [](void* data,
                qt_extended_surface* qt_extended_surface,
                const char* name,
-               wl_array* value) {
-              ELINUX_LOG(INFO) << "Cover set_generic_property: " << name;
-            },
-        .close =
-            [](void* data, qt_extended_surface* qt_extended_surface) {
-              ELINUX_LOG(INFO) << "Cover close";
-            },
-};
-
-const wl_callback_listener CoverWindowWayland::kFrameListener = {
-    .done =
-        [](void* data, wl_callback* wl_callback, uint32_t time) {
-          auto self = reinterpret_cast<CoverWindowWayland*>(data);
-          wl_callback_destroy(wl_callback);
-          self->frame_callback_ = nullptr;
-          self->frame_count_++;
-          if (self->visibility_ != 0) {
-            self->Draw();
-          }
-        },
+               wl_array* value) {},
+        .close = [](void* data, qt_extended_surface* qt_extended_surface) {},
 };
 
 const wl_buffer_listener CoverWindowWayland::kBufferListener = {
@@ -99,8 +78,8 @@ const wl_buffer_listener CoverWindowWayland::kBufferListener = {
               buffer.busy = false;
             }
           }
-          if (self->draw_when_released_) {
-            self->Draw();
+          if (!self->pending_.empty()) {
+            self->CommitPending();
           }
         },
 };
@@ -112,8 +91,9 @@ CoverWindowWayland::CoverWindowWayland(
     qt_surface_extension* surface_extension,
     wl_surface* main_surface,
     qt_extended_surface* main_extended_surface,
-    const char* app_id)
-    : shm_(shm) {
+    const char* app_id,
+    ChangedCallback on_changed)
+    : shm_(shm), on_changed_(std::move(on_changed)) {
   surface_ = wl_compositor_create_surface(compositor);
   if (!surface_) {
     ELINUX_LOG(ERROR) << "Failed to create the cover surface.";
@@ -144,16 +124,9 @@ CoverWindowWayland::CoverWindowWayland(
   SetStringWindowProperty(main_extended_surface, "SAILFISH_COVER_WINDOW",
                           "__winref:" + std::to_string(kCoverWindowId));
   SetBoolWindowProperty(main_extended_surface, "SAILFISH_HAVE_COVER", true);
-
-  if (CreateBuffers()) {
-    Draw();
-  }
 }
 
 CoverWindowWayland::~CoverWindowWayland() {
-  if (frame_callback_) {
-    wl_callback_destroy(frame_callback_);
-  }
   if (extended_surface_) {
     qt_extended_surface_destroy(extended_surface_);
   }
@@ -166,15 +139,18 @@ CoverWindowWayland::~CoverWindowWayland() {
   DestroyBuffers();
 }
 
-uint32_t CoverWindowWayland::TakeFrameCount() {
-  const uint32_t count = frame_count_;
-  frame_count_ = 0;
-  return count;
+void CoverWindowWayland::SetFrame(int32_t width,
+                                  int32_t height,
+                                  const uint8_t* rgba) {
+  pending_.assign(rgba, rgba + static_cast<size_t>(width) * height * 4);
+  pending_width_ = width;
+  pending_height_ = height;
+  CommitPending();
 }
 
-bool CoverWindowWayland::CreateBuffers() {
-  const int32_t stride = width_ * 4;
-  const size_t size = static_cast<size_t>(stride) * height_;
+bool CoverWindowWayland::CreateBuffers(int32_t width, int32_t height) {
+  const int32_t stride = width * 4;
+  const size_t size = static_cast<size_t>(stride) * height;
   for (auto& buffer : buffers_) {
     const int fd = memfd_create("flutter-sfos-cover", MFD_CLOEXEC);
     if (fd < 0) {
@@ -193,7 +169,7 @@ bool CoverWindowWayland::CreateBuffers() {
       return false;
     }
     wl_shm_pool* pool = wl_shm_create_pool(shm_, fd, size);
-    buffer.buffer = wl_shm_pool_create_buffer(pool, 0, width_, height_, stride,
+    buffer.buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride,
                                               WL_SHM_FORMAT_ARGB8888);
     wl_shm_pool_destroy(pool);
     close(fd);
@@ -202,6 +178,8 @@ bool CoverWindowWayland::CreateBuffers() {
     buffer.busy = false;
     wl_buffer_add_listener(buffer.buffer, &kBufferListener, this);
   }
+  buffer_width_ = width;
+  buffer_height_ = height;
   return true;
 }
 
@@ -215,49 +193,46 @@ void CoverWindowWayland::DestroyBuffers() {
     }
     buffer = Buffer();
   }
+  buffer_width_ = 0;
+  buffer_height_ = 0;
 }
 
-void CoverWindowWayland::Draw() {
+void CoverWindowWayland::CommitPending() {
+  if (pending_width_ != buffer_width_ || pending_height_ != buffer_height_) {
+    DestroyBuffers();
+    if (!CreateBuffers(pending_width_, pending_height_)) {
+      DestroyBuffers();
+      pending_.clear();
+      return;
+    }
+  }
   Buffer* buffer = nullptr;
   for (auto& candidate : buffers_) {
-    if (candidate.buffer && !candidate.busy) {
+    if (!candidate.busy) {
       buffer = &candidate;
       break;
     }
   }
   if (!buffer) {
-    draw_when_released_ = true;
+    // Shown once a buffer is released.
     return;
   }
-  draw_when_released_ = false;
 
-  // Test pattern: an amber strip marks the top, and a white bar moves down a
-  // blue background by a few pixels per frame.
-  constexpr uint32_t kBlue = 0xff0175c2;
-  constexpr uint32_t kAmber = 0xffffc107;
-  constexpr uint32_t kWhite = 0xffffffff;
-  const int32_t strip = height_ / 20;
-  const int32_t bar = height_ / 12;
-  const int32_t bar_top =
-      strip + static_cast<int32_t>((step_ * 6) % (height_ - strip - bar));
-  auto* pixels = static_cast<uint32_t*>(buffer->data);
-  for (int32_t y = 0; y < height_; y++) {
-    uint32_t color = kBlue;
-    if (y < strip) {
-      color = kAmber;
-    } else if (y >= bar_top && y < bar_top + bar) {
-      color = kWhite;
-    }
-    std::fill(pixels + y * width_, pixels + (y + 1) * width_, color);
+  // RGBA bytes to WL_SHM_FORMAT_ARGB8888, which is little-endian (B, G, R, A
+  // in memory). Both are premultiplied.
+  const uint8_t* src = pending_.data();
+  auto* dst = static_cast<uint8_t*>(buffer->data);
+  const size_t pixels = static_cast<size_t>(pending_width_) * pending_height_;
+  for (size_t i = 0; i < pixels; i++, src += 4, dst += 4) {
+    dst[0] = src[2];
+    dst[1] = src[1];
+    dst[2] = src[0];
+    dst[3] = src[3];
   }
-  step_++;
+  pending_.clear();
 
   wl_surface_attach(surface_, buffer->buffer, 0, 0);
-  wl_surface_damage(surface_, 0, 0, width_, height_);
-  if (visibility_ != 0 && !frame_callback_) {
-    frame_callback_ = wl_surface_frame(surface_);
-    wl_callback_add_listener(frame_callback_, &kFrameListener, this);
-  }
+  wl_surface_damage(surface_, 0, 0, buffer_width_, buffer_height_);
   wl_surface_commit(surface_);
   buffer->busy = true;
 }

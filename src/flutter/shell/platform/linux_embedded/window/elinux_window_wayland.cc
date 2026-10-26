@@ -17,7 +17,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <locale>
 #include <unordered_map>
 
@@ -292,24 +291,17 @@ const qt_extended_surface_listener
               ELINUX_LOG(INFO)
                   << "qt_extended_surface.onscreen_visibility: " << visible;
               auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
-              self->main_visibility_ = visible;
               // Undocumented; observed on SFOS 5.2: 5 in the foreground, 3
               // while shown as an app cover, 0 when hidden (also while
               // minimised, when the home screen is off-screen or dimmed).
               // Bit 2 is taken to mean "cover". Hidden keeps the current
-              // state, so the window isn't switched back to the app while
-              // nobody can see it, only to flash up when the cover returns.
+              // state, so the window doesn't turn while nobody can see it
+              // and then show up turned in its tile.
               if (visible == 0) {
                 return;
               }
               const bool cover = (visible & 2) != 0;
-              if (cover != self->shown_as_cover_) {
-                self->shown_as_cover_ = cover;
-                self->MaybeApplyOutputTransform();
-                if (self->binding_handler_delegate_) {
-                  self->binding_handler_delegate_->OnShownAsCoverChanged(cover);
-                }
-              }
+              self->SetShownAsCover(cover);
             },
         .set_generic_property =
             [](void* data,
@@ -453,7 +445,6 @@ const wl_callback_listener ELinuxWindowWayland::kWlSurfaceFrameListener = {
           }
 
           self->last_frame_time_nanos_ = static_cast<uint64_t>(time) * 1000000;
-          self->main_frame_count_++;
 
           auto callback = wl_surface_frame(self->native_window_->Surface());
           wl_callback_destroy(wl_callback);
@@ -1311,10 +1302,6 @@ ELinuxWindowWayland::ELinuxWindowWayland(
     const char* env = std::getenv("FLUTTER_SFOS_ROTATION");
     follow_output_transform_ = !(env && std::strcmp(env, "0") == 0);
   }
-  {
-    const char* env = std::getenv("FLUTTER_SFOS_COVER");
-    cover_test_ = env && std::strcmp(env, "test") == 0;
-  }
 
   auto xcursor_size_string = std::getenv(kXcursorSizeEnvironmentKey);
   cursor_size_ =
@@ -1579,22 +1566,6 @@ bool ELinuxWindowWayland::DispatchEvent() {
   }
   wl_display_flush(wl_display_);
 
-  if (cover_window_) {
-    timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    const uint64_t now_nanos =
-        static_cast<uint64_t>(now.tv_sec) * 1000000000 + now.tv_nsec;
-    if (now_nanos - cover_stats_time_nanos_ >= 1000000000) {
-      cover_stats_time_nanos_ = now_nanos;
-      ELINUX_LOG(INFO) << "Cover test: frame callbacks/s main "
-                       << main_frame_count_ << ", cover "
-                       << cover_window_->TakeFrameCount()
-                       << "; visibility main " << main_visibility_
-                       << ", cover " << cover_window_->visibility();
-      main_frame_count_ = 0;
-    }
-  }
-
   // Handle Vsync.
   if (binding_handler_delegate_) {
     const uint64_t vsync_interval_time_nanos = 1000000000000 / frame_rate_;
@@ -1761,15 +1732,6 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
   // xdg_surface needs waiting for.
   wait_for_configure_ = !use_wl_shell_;
   wl_surface_commit(native_window_->Surface());
-
-  if (use_wl_shell_ && cover_test_ && wl_shm_) {
-    cover_window_ = std::make_unique<CoverWindowWayland>(
-        wl_compositor_, wl_shm_, wl_shell_, qt_surface_extension_,
-        native_window_->Surface(), qt_extended_surface_,
-        view_properties_.app_id);
-    ELINUX_LOG(INFO) << "Cover test window "
-                     << (cover_window_->IsValid() ? "created" : "failed");
-  }
 
   render_surface_ = std::make_unique<SurfaceGl>(std::make_unique<ContextEgl>(
       std::make_unique<EnvironmentEgl>(EGL_PLATFORM_WAYLAND_KHR, wl_display_),
@@ -2388,10 +2350,19 @@ bool ELinuxWindowWayland::IsCoverConfigure(int32_t width,
   return conf_long * 5 < disp_long * 4;
 }
 
+void ELinuxWindowWayland::SetShownAsCover(bool shown_as_cover) {
+  if (shown_as_cover == shown_as_cover_) {
+    return;
+  }
+  shown_as_cover_ = shown_as_cover;
+  MaybeApplyOutputTransform();
+}
+
 void ELinuxWindowWayland::MaybeApplyOutputTransform() {
-  // Without a cover window of its own, Lipstick scales this window into the
-  // portrait app cover, so draw portrait while shown as a cover.
-  int32_t target = shown_as_cover_ ? WL_OUTPUT_TRANSFORM_NORMAL : transform_;
+  // While shown as the app's cover, keep the current orientation: Lipstick
+  // shows the window upright in the cover tile as it is, and would animate
+  // a turn there.
+  int32_t target = shown_as_cover_ ? applied_transform_ : transform_;
   // Respect the app's preferred orientations: stay put when the new one isn't
   // allowed, or move to the most preferred one if the current one isn't.
   if (!IsTransformAllowed(target)) {
@@ -2544,6 +2515,48 @@ DisplayCutouts ELinuxWindowWayland::GetDisplayCutouts() const {
     }
   }
   return cutouts;
+}
+
+CoverState ELinuxWindowWayland::GetCoverState() const {
+  CoverState state;
+  // Cover windows need the Qt surface extension, which only the wl_shell
+  // path uses.
+  state.available = use_wl_shell_ && wl_shm_ && qt_extended_surface_;
+  if (!state.available) {
+    return state;
+  }
+  if (cover_window_) {
+    state.visible = cover_window_->visible();
+    state.width = cover_window_->width();
+    state.height = cover_window_->height();
+  } else {
+    state.width = CoverWindowWayland::kDefaultWidth;
+    state.height = CoverWindowWayland::kDefaultHeight;
+  }
+  return state;
+}
+
+void ELinuxWindowWayland::SetCoverFrame(int32_t width,
+                                        int32_t height,
+                                        const uint8_t* rgba) {
+  if (!cover_window_) {
+    if (!GetCoverState().available) {
+      return;
+    }
+    cover_window_ = std::make_unique<CoverWindowWayland>(
+        wl_compositor_, wl_shm_, wl_shell_, qt_surface_extension_,
+        native_window_->Surface(), qt_extended_surface_,
+        view_properties_.app_id, [this]() {
+          if (binding_handler_delegate_) {
+            binding_handler_delegate_->OnCoverChanged();
+          }
+        });
+    if (!cover_window_->IsValid()) {
+      cover_window_ = nullptr;
+      return;
+    }
+  }
+  cover_window_->SetFrame(width, height, rgba);
 }
 
 void ELinuxWindowWayland::SetCoverActions(const std::string& actions) {
