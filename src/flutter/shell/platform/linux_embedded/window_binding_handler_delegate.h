@@ -19,6 +19,9 @@ class WindowBindingHandlerDelegate {
 
   virtual void OnWindowMetricsChanged() const {}
 
+  // Notifies delegate that the content orientation has changed.
+  virtual void OnContentOrientationChanged() {}
+
   // Notifies delegate that backing window mouse has moved. Typically called by
   // currently configured WindowBindingHandler
   // @param[in] x_px The x coordinate of the pointer event in physical pixels.

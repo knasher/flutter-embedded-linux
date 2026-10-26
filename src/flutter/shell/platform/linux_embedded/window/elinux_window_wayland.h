@@ -22,6 +22,7 @@
 // wayland-scanner.
 extern "C" {
 #include "wayland/protocols/presentation-time-protocol.h"
+#include "wayland/protocols/surface-extension-client-protocol.h"
 #include "wayland/protocols/text-input-unstable-v1-client-protocol.h"
 #include "wayland/protocols/text-input-unstable-v3-client-protocol.h"
 #include "wayland/protocols/xdg-decoration-unstable-v1-protocol.h"
@@ -89,6 +90,9 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   PhysicalViewInsets GetViewInsets() override;
 
   // |FlutterWindowBindingHandler|
+  int32_t GetContentOrientationAngle() const override;
+
+  // |FlutterWindowBindingHandler|
   void UpdateVirtualKeyboardArea(int32_t x,
                                  int32_t y,
                                  int32_t width,
@@ -127,6 +131,10 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
 
   void MaybeUpdateDevicePixelRatio();
 
+  // Follows the wl_output transform that Lipstick sends on rotation.
+  void MaybeApplyOutputTransform();
+  bool FollowsOutputTransform() const;
+
   bool IsCoverConfigure(int32_t width, int32_t height) const;
 
   void CreateDecoration(int32_t width_dip, int32_t height_dip);
@@ -138,6 +146,8 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   static const xdg_wm_base_listener kXdgWmBaseListener;
   static const xdg_surface_listener kXdgSurfaceListener;
   static const xdg_toplevel_listener kXdgToplevelListener;
+  static const wl_shell_surface_listener kWlShellSurfaceListener;
+  static const qt_extended_surface_listener kQtExtendedSurfaceListener;
   static const wl_surface_listener kWlSurfaceListener;
   static const wl_seat_listener kWlSeatListener;
   static const wl_pointer_listener kWlPointerListener;
@@ -239,6 +249,20 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   int32_t output_mode_width_ = 0;
   bool device_pixel_ratio_locked_ = false;
   double keyboard_inset_bottom_ = 0;
+
+  bool follow_output_transform_ = false;
+  int32_t applied_transform_ = WL_OUTPUT_TRANSFORM_NORMAL;
+
+  // Sailfish: fullscreen windows use wl_shell plus the Qt surface extension,
+  // like native Silica apps. Lipstick only treats set_buffer_transform as the
+  // content orientation for these; it rotates xdg_shell buffers back instead.
+  bool use_wl_shell_ = false;
+  bool force_xdg_shell_ = false;
+  wl_shell* wl_shell_ = nullptr;
+  wl_shell_surface* wl_shell_surface_ = nullptr;
+  qt_surface_extension* qt_surface_extension_ = nullptr;
+  qt_extended_surface* qt_extended_surface_ = nullptr;
+  bool shown_as_cover_ = false;
 };
 
 }  // namespace flutter

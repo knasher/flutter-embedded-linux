@@ -16,6 +16,7 @@
 #include <codecvt>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <locale>
 #include <unordered_map>
 
@@ -206,6 +207,77 @@ const xdg_toplevel_listener ELinuxWindowWayland::kXdgToplevelListener = {
           auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
           self->running_ = false;
         }};
+
+const wl_shell_surface_listener ELinuxWindowWayland::kWlShellSurfaceListener =
+    {
+        .ping =
+            [](void* data, wl_shell_surface* wl_shell_surface,
+               uint32_t serial) {
+              wl_shell_surface_pong(wl_shell_surface, serial);
+            },
+        .configure =
+            [](void* data,
+               wl_shell_surface* wl_shell_surface,
+               uint32_t edges,
+               int32_t width,
+               int32_t height) {
+              ELINUX_LOG(TRACE) << "wl_shell_surface_listener.configure: "
+                                << width << ", " << height;
+
+              auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
+              // Lipstick keeps wl_shell surfaces in the panel's native
+              // orientation; the content is rotated inside them.
+              if (self->current_rotation_ == 90 ||
+                  self->current_rotation_ == 270) {
+                std::swap(width, height);
+              }
+              const int32_t next_width_dip = width / self->current_scale_;
+              const int32_t next_height_dip = height / self->current_scale_;
+              if (!next_width_dip || !next_height_dip ||
+                  (self->view_properties_.width == next_width_dip &&
+                   self->view_properties_.height == next_height_dip)) {
+                return;
+              }
+              self->view_properties_.width = next_width_dip;
+              self->view_properties_.height = next_height_dip;
+              self->request_redraw_ = true;
+            },
+        .popup_done = [](void* data, wl_shell_surface* wl_shell_surface) {},
+};
+
+const qt_extended_surface_listener
+    ELinuxWindowWayland::kQtExtendedSurfaceListener = {
+        .onscreen_visibility =
+            [](void* data,
+               qt_extended_surface* qt_extended_surface,
+               int32_t visible) {
+              ELINUX_LOG(INFO)
+                  << "qt_extended_surface.onscreen_visibility: " << visible;
+              auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
+              // Undocumented; observed on SFOS 5.2: 5 in the foreground, 3
+              // while shown as an app cover, 0 when hidden. Bit 2 is taken
+              // to mean "cover".
+              const bool cover = (visible & 2) != 0;
+              if (cover != self->shown_as_cover_) {
+                self->shown_as_cover_ = cover;
+                self->MaybeApplyOutputTransform();
+              }
+            },
+        .set_generic_property =
+            [](void* data,
+               qt_extended_surface* qt_extended_surface,
+               const char* name,
+               wl_array* value) {
+              ELINUX_LOG(TRACE)
+                  << "qt_extended_surface.set_generic_property: " << name;
+            },
+        .close =
+            [](void* data, qt_extended_surface* qt_extended_surface) {
+              ELINUX_LOG(TRACE) << "qt_extended_surface.close";
+              auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
+              self->running_ = false;
+            },
+};
 
 const wl_surface_listener ELinuxWindowWayland::kWlSurfaceListener = {
     .enter =
@@ -725,11 +797,16 @@ const wl_output_listener ELinuxWindowWayland::kWlOutputListener = {
       auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
       if (flags & WL_OUTPUT_MODE_CURRENT) {
         self->output_mode_width_ = width;
+        // While following the output transform, the rotation is applied on
+        // wl_output.done, so only the current rotation counts here.
+        const bool transform_rotated =
+            !self->FollowsOutputTransform() &&
+            (self->transform_ == WL_OUTPUT_TRANSFORM_90 ||
+             self->transform_ == WL_OUTPUT_TRANSFORM_270 ||
+             self->transform_ == WL_OUTPUT_TRANSFORM_FLIPPED_90 ||
+             self->transform_ == WL_OUTPUT_TRANSFORM_FLIPPED_270);
         if (self->current_rotation_ == 90 || self->current_rotation_ == 270 ||
-            self->transform_ == WL_OUTPUT_TRANSFORM_90 ||
-            self->transform_ == WL_OUTPUT_TRANSFORM_270 ||
-            self->transform_ == WL_OUTPUT_TRANSFORM_FLIPPED_90 ||
-            self->transform_ == WL_OUTPUT_TRANSFORM_FLIPPED_270) {
+            transform_rotated) {
           std::swap(width, height);
         }
 
@@ -784,6 +861,8 @@ const wl_output_listener ELinuxWindowWayland::kWlOutputListener = {
     },
     .done = [](void* data, wl_output* wl_output) -> void {
       ELINUX_LOG(TRACE) << "wl_output_listener.done";
+      auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
+      self->MaybeApplyOutputTransform();
     },
     .scale = [](void* data, wl_output* wl_output, int32_t scale) -> void {
       ELINUX_LOG(TRACE) << "wl_output_listener.scale";
@@ -1165,6 +1244,20 @@ ELinuxWindowWayland::ELinuxWindowWayland(
   }
   SetRotation(view_properties_.view_rotation);
 
+  // Lipstick reports rotation only through the wl_output transform. Follow it
+  // unless a fixed rotation was requested.
+  // FLUTTER_SFOS_ROTATION=0 turns this off, and so does FLUTTER_SFOS_SHELL=xdg,
+  // which keeps xdg_shell and the upstream behaviour.
+  {
+    const char* env = std::getenv("FLUTTER_SFOS_SHELL");
+    force_xdg_shell_ = env && std::strcmp(env, "xdg") == 0;
+  }
+  if (view_properties_.view_rotation == FlutterDesktopViewRotation::kRotation_0 &&
+      !force_xdg_shell_) {
+    const char* env = std::getenv("FLUTTER_SFOS_ROTATION");
+    follow_output_transform_ = !(env && std::strcmp(env, "0") == 0);
+  }
+
   auto xcursor_size_string = std::getenv(kXcursorSizeEnvironmentKey);
   cursor_size_ =
       xcursor_size_string ? atoi(xcursor_size_string) : kDefaultPointerSize;
@@ -1336,6 +1429,16 @@ ELinuxWindowWayland::~ELinuxWindowWayland() {
     xdg_wm_base_ = nullptr;
   }
 
+  if (qt_surface_extension_) {
+    qt_surface_extension_destroy(qt_surface_extension_);
+    qt_surface_extension_ = nullptr;
+  }
+
+  if (wl_shell_) {
+    wl_shell_destroy(wl_shell_);
+    wl_shell_ = nullptr;
+  }
+
   if (wl_compositor_) {
     wl_compositor_destroy(wl_compositor_);
     wl_compositor_ = nullptr;
@@ -1461,7 +1564,15 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
     return false;
   }
 
-  if (!xdg_wm_base_) {
+  // Sailfish: native apps use wl_shell with the Qt surface extension, and
+  // Lipstick only treats set_buffer_transform as the content orientation for
+  // those surfaces.
+  use_wl_shell_ =
+      !force_xdg_shell_ && wl_shell_ && qt_surface_extension_ &&
+      view_properties_.view_mode == FlutterDesktopViewMode::kFullscreen;
+  ELINUX_LOG(INFO) << "Shell: " << (use_wl_shell_ ? "wl_shell" : "xdg_shell");
+
+  if (!use_wl_shell_ && !xdg_wm_base_) {
     ELINUX_LOG(ERROR) << "Xdg-shell is invalid";
     return false;
   }
@@ -1498,23 +1609,57 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
       wl_compositor_, width_px, height_px, view_properties_.enable_vsync);
 
   wl_surface_add_listener(native_window_->Surface(), &kWlSurfaceListener, this);
+  if (use_wl_shell_ && applied_transform_ != WL_OUTPUT_TRANSFORM_NORMAL) {
+    wl_surface_set_buffer_transform(native_window_->Surface(),
+                                    applied_transform_);
+  }
 
-  xdg_surface_ =
-      xdg_wm_base_get_xdg_surface(xdg_wm_base_, native_window_->Surface());
-  if (!xdg_surface_) {
-    ELINUX_LOG(ERROR) << "Failed to get the xdg surface.";
-    return false;
-  }
-  xdg_surface_add_listener(xdg_surface_, &kXdgSurfaceListener, this);
+  if (use_wl_shell_) {
+    wl_shell_surface_ =
+        wl_shell_get_shell_surface(wl_shell_, native_window_->Surface());
+    if (!wl_shell_surface_) {
+      ELINUX_LOG(ERROR) << "Failed to get the wl_shell surface.";
+      return false;
+    }
+    wl_shell_surface_add_listener(wl_shell_surface_, &kWlShellSurfaceListener,
+                                  this);
+    wl_shell_surface_set_toplevel(wl_shell_surface_);
+    if (view_properties_.title != nullptr) {
+      wl_shell_surface_set_title(wl_shell_surface_, view_properties_.title);
+    }
+    if (view_properties_.app_id != nullptr) {
+      wl_shell_surface_set_class(wl_shell_surface_, view_properties_.app_id);
+    }
 
-  xdg_toplevel_ = xdg_surface_get_toplevel(xdg_surface_);
-  if (view_properties_.title != nullptr) {
-    xdg_toplevel_set_title(xdg_toplevel_, view_properties_.title);
+    qt_extended_surface_ = qt_surface_extension_get_extended_surface(
+        qt_surface_extension_, native_window_->Surface());
+    qt_extended_surface_add_listener(qt_extended_surface_,
+                                     &kQtExtendedSurfaceListener, this);
+    qt_extended_surface_set_content_orientation_mask(
+        qt_extended_surface_,
+        QT_EXTENDED_SURFACE_ORIENTATION_PORTRAITORIENTATION |
+            QT_EXTENDED_SURFACE_ORIENTATION_LANDSCAPEORIENTATION |
+            QT_EXTENDED_SURFACE_ORIENTATION_INVERTEDPORTRAITORIENTATION |
+            QT_EXTENDED_SURFACE_ORIENTATION_INVERTEDLANDSCAPEORIENTATION);
+    qt_extended_surface_set_window_flags(qt_extended_surface_, 0);
+  } else {
+    xdg_surface_ =
+        xdg_wm_base_get_xdg_surface(xdg_wm_base_, native_window_->Surface());
+    if (!xdg_surface_) {
+      ELINUX_LOG(ERROR) << "Failed to get the xdg surface.";
+      return false;
+    }
+    xdg_surface_add_listener(xdg_surface_, &kXdgSurfaceListener, this);
+
+    xdg_toplevel_ = xdg_surface_get_toplevel(xdg_surface_);
+    if (view_properties_.title != nullptr) {
+      xdg_toplevel_set_title(xdg_toplevel_, view_properties_.title);
+    }
+    if (view_properties_.app_id != nullptr) {
+      xdg_toplevel_set_app_id(xdg_toplevel_, view_properties_.app_id);
+    }
+    xdg_toplevel_add_listener(xdg_toplevel_, &kXdgToplevelListener, this);
   }
-  if (view_properties_.app_id != nullptr) {
-    xdg_toplevel_set_app_id(xdg_toplevel_, view_properties_.app_id);
-  }
-  xdg_toplevel_add_listener(xdg_toplevel_, &kXdgToplevelListener, this);
   wl_surface_set_buffer_scale(native_window_->Surface(), current_scale_);
 
   {
@@ -1530,10 +1675,18 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
   }
 
   if (view_properties_.view_mode == FlutterDesktopViewMode::kFullscreen) {
-    xdg_toplevel_set_fullscreen(xdg_toplevel_, NULL);
+    if (use_wl_shell_) {
+      wl_shell_surface_set_fullscreen(
+          wl_shell_surface_, WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT, 0,
+          nullptr);
+    } else {
+      xdg_toplevel_set_fullscreen(xdg_toplevel_, NULL);
+    }
   }
 
-  wait_for_configure_ = true;
+  // wl_shell surfaces are configured after their first buffer, so only an
+  // xdg_surface needs waiting for.
+  wait_for_configure_ = !use_wl_shell_;
   wl_surface_commit(native_window_->Surface());
 
   render_surface_ = std::make_unique<SurfaceGl>(std::make_unique<ContextEgl>(
@@ -1541,7 +1694,7 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
       enable_impeller));
   render_surface_->SetNativeWindow(native_window_.get());
 
-  if (view_properties_.use_window_decoration) {
+  if (view_properties_.use_window_decoration && !use_wl_shell_) {
     if (zxdg_decoration_manager_v1_) {
       ELINUX_LOG(INFO) << "Use server-side xdg-decoration mode";
       zxdg_toplevel_decoration_v1_ =
@@ -1594,6 +1747,16 @@ void ELinuxWindowWayland::DestroyRenderSurface() {
     xdg_surface_ = nullptr;
   }
 
+  if (qt_extended_surface_) {
+    qt_extended_surface_destroy(qt_extended_surface_);
+    qt_extended_surface_ = nullptr;
+  }
+
+  if (wl_shell_surface_) {
+    wl_shell_surface_destroy(wl_shell_surface_);
+    wl_shell_surface_ = nullptr;
+  }
+
   if (wl_cursor_surface_) {
     wl_surface_destroy(wl_cursor_surface_);
     wl_cursor_surface_ = nullptr;
@@ -1608,6 +1771,47 @@ void ELinuxWindowWayland::UpdateVirtualKeyboardArea(int32_t x,
                                                     int32_t y,
                                                     int32_t width,
                                                     int32_t height) {
+  ELINUX_LOG(TRACE) << "Input method area: " << x << "," << y << " " << width
+                    << "x" << height << " (rotation " << current_rotation_
+                    << ")";
+  if (width > 0 && height > 0 &&
+      (current_rotation_ == 90 || current_rotation_ == 180 ||
+       current_rotation_ == 270)) {
+    // Maliit reports the area in the display's native orientation; map it
+    // into the rotated view the same way touch points are mapped.
+    const double view_w = GetCurrentWidth();
+    const double view_h = GetCurrentHeight();
+    const double x0 = x;
+    const double y0 = y;
+    const double x1 = x0 + width;
+    const double y1 = y0 + height;
+    double left = 0;
+    double top = 0;
+    double right = 0;
+    double bottom = 0;
+    if (current_rotation_ == 90) {
+      left = y0;
+      right = y1;
+      top = view_h - x1;
+      bottom = view_h - x0;
+    } else if (current_rotation_ == 180) {
+      left = view_w - x1;
+      right = view_w - x0;
+      top = view_h - y1;
+      bottom = view_h - y0;
+    } else {
+      left = view_w - y1;
+      right = view_w - y0;
+      top = x0;
+      bottom = x1;
+    }
+    x = static_cast<int32_t>(left);
+    y = static_cast<int32_t>(top);
+    width = static_cast<int32_t>(right - left);
+    height = static_cast<int32_t>(bottom - top);
+    ELINUX_LOG(TRACE) << "Input method area in view: " << x << "," << y << " "
+                      << width << "x" << height;
+  }
   double inset = 0.0;
   const int32_t win_h = static_cast<int32_t>(GetCurrentHeight());
   if (width > 0 && height > 0 && win_h > 0) {
@@ -1771,6 +1975,19 @@ void ELinuxWindowWayland::WlRegistryHandler(wl_registry* wl_registry,
         wl_registry_bind(wl_registry, name, &xdg_wm_base_interface,
                          std::min(kMaxVersion, version)));
     xdg_wm_base_add_listener(xdg_wm_base_, &kXdgWmBaseListener, this);
+    return;
+  }
+
+  if (!strcmp(interface, wl_shell_interface.name)) {
+    wl_shell_ = static_cast<decltype(wl_shell_)>(
+        wl_registry_bind(wl_registry, name, &wl_shell_interface, 1));
+    return;
+  }
+
+  if (!strcmp(interface, qt_surface_extension_interface.name)) {
+    qt_surface_extension_ = static_cast<decltype(qt_surface_extension_)>(
+        wl_registry_bind(wl_registry, name, &qt_surface_extension_interface,
+                         1));
     return;
   }
 
@@ -2084,6 +2301,83 @@ bool ELinuxWindowWayland::IsCoverConfigure(int32_t width,
   const int32_t conf_long = std::max(width, height);
   const int32_t disp_long = std::max(display_max_width_, display_max_height_);
   return conf_long * 5 < disp_long * 4;
+}
+
+void ELinuxWindowWayland::MaybeApplyOutputTransform() {
+  // Without a cover window of its own, Lipstick scales this window into the
+  // portrait app cover, so draw portrait while shown as a cover.
+  const int32_t target =
+      shown_as_cover_ ? WL_OUTPUT_TRANSFORM_NORMAL : transform_;
+  if (!FollowsOutputTransform() || target == applied_transform_) {
+    return;
+  }
+
+  // The buffer keeps the panel's native orientation and the content is drawn
+  // pre-rotated into it. On a portrait panel Lipstick sends 270 for
+  // Landscape and 90 for InvertedLandscape.
+  uint16_t degree = 0;
+  switch (target) {
+    case WL_OUTPUT_TRANSFORM_NORMAL:
+      degree = 0;
+      break;
+    case WL_OUTPUT_TRANSFORM_90:
+      degree = 270;
+      break;
+    case WL_OUTPUT_TRANSFORM_180:
+      degree = 180;
+      break;
+    case WL_OUTPUT_TRANSFORM_270:
+      degree = 90;
+      break;
+    default:
+      ELINUX_LOG(WARNING) << "Ignoring output transform " << target;
+      return;
+  }
+
+  ELINUX_LOG(INFO) << "Output transform " << target << ": rotating by "
+                   << degree << (shown_as_cover_ ? " (cover)" : "");
+  const bool was_sideways = current_rotation_ == 90 || current_rotation_ == 270;
+  const bool is_sideways = degree == 90 || degree == 270;
+  applied_transform_ = target;
+  current_rotation_ = degree;
+
+  // Tells Lipstick which orientation the content is drawn in, so its edge
+  // gestures follow.
+  if (native_window_ && use_wl_shell_) {
+    wl_surface_set_buffer_transform(native_window_->Surface(), target);
+  }
+
+  // The buffer keeps the panel's native orientation; only the logical size
+  // turns.
+  if (was_sideways != is_sideways) {
+    std::swap(view_properties_.width, view_properties_.height);
+  }
+  request_redraw_ = true;
+
+  if (binding_handler_delegate_) {
+    binding_handler_delegate_->OnContentOrientationChanged();
+  }
+}
+
+bool ELinuxWindowWayland::FollowsOutputTransform() const {
+  // Only the wl_shell path can tell Lipstick the content orientation. The
+  // globals are bound before any wl_output event arrives, so this also holds
+  // for the first transform during start-up.
+  return follow_output_transform_ && wl_shell_ && qt_surface_extension_ &&
+         view_properties_.view_mode == FlutterDesktopViewMode::kFullscreen;
+}
+
+int32_t ELinuxWindowWayland::GetContentOrientationAngle() const {
+  switch (applied_transform_) {
+    case WL_OUTPUT_TRANSFORM_90:
+      return 270;
+    case WL_OUTPUT_TRANSFORM_180:
+      return 180;
+    case WL_OUTPUT_TRANSFORM_270:
+      return 90;
+    default:
+      return 0;
+  }
 }
 
 void ELinuxWindowWayland::MaybeUpdateDevicePixelRatio() {

@@ -91,6 +91,10 @@ class WindowBindingHandler {
                                          int32_t width,
                                          int32_t height) {}
 
+  // Returns the angle (0, 90, 180 or 270) of the content orientation relative
+  // to the display's native orientation, as Maliit's appOrientation expects.
+  virtual int32_t GetContentOrientationAngle() const { return 0; }
+
   // Returns the clipboard data.
   virtual std::string GetClipboardData() = 0;
 

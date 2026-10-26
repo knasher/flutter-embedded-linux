@@ -28,11 +28,13 @@ class TextInputPlugin {
 
   void OnKeyPressed(uint32_t keycode, uint32_t code_point);
   void DispatchEvent();
+  void OnContentOrientationChanged();
 
  private:
   void InitMaliitConnection();
   void MaliitShowInputMethod();
   void MaliitHideInputMethod();
+  void MaliitSendAppOrientation();
 
   static gboolean MaliitHandleIMInitiatedHide(MaliitContext* obj,
                                               GDBusMethodInvocation* invocation,

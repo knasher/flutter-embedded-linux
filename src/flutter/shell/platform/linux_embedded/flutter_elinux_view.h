@@ -92,6 +92,9 @@ class FlutterELinuxView : public WindowBindingHandlerDelegate {
   void OnWindowMetricsChanged() const override;
 
   // |WindowBindingHandlerDelegate|
+  void OnContentOrientationChanged() override;
+
+  // |WindowBindingHandlerDelegate|
   void OnPointerMove(double x_px, double y_px) override;
 
   // |WindowBindingHandlerDelegate|

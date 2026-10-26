@@ -393,6 +393,7 @@ void TextInputPlugin::MaliitShowInputMethod() {
     g_clear_error(&error);
     return;
   }
+  MaliitSendAppOrientation();
   if (!maliit_server_call_show_input_method_sync(maliit_server_, nullptr,
                                                  &error)) {
     ELINUX_LOG(ERROR) << "Unable to show Maliit: " << error->message;
@@ -415,6 +416,24 @@ void TextInputPlugin::MaliitHideInputMethod() {
     g_clear_error(&error);
   }
   delegate_->UpdateVirtualKeyboardArea(0, 0, 0, 0);
+}
+
+void TextInputPlugin::OnContentOrientationChanged() {
+  MaliitSendAppOrientation();
+}
+
+void TextInputPlugin::MaliitSendAppOrientation() {
+  if (!maliit_server_) {
+    return;
+  }
+  GError* error = nullptr;
+  if (!maliit_server_call_app_orientation_changed_sync(
+          maliit_server_, delegate_->GetContentOrientationAngle(), nullptr,
+          &error)) {
+    ELINUX_LOG(ERROR) << "Unable to set Maliit app orientation: "
+                      << error->message;
+    g_clear_error(&error);
+  }
 }
 
 void TextInputPlugin::InitMaliitConnection() {

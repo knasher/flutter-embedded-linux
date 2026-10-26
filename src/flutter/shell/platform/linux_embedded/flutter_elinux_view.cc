@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <utility>
 
 #include "flutter/common/constants.h"
 #include "flutter/shell/platform/linux_embedded/logger.h"
@@ -98,7 +99,16 @@ void FlutterELinuxView::RegisterPlatformViewFactory(
 
 void FlutterELinuxView::OnWindowSizeChanged(size_t width_px,
                                             size_t height_px) const {
-  if (!GetRenderSurfaceTarget()->OnScreenSurfaceResize(width_px, height_px)) {
+  // width_px/height_px are in the rotated orientation, but the native surface
+  // keeps the display's native orientation.
+  size_t surface_width_px = width_px;
+  size_t surface_height_px = height_px;
+  const auto degree = binding_handler_->GetRotationDegree();
+  if (degree == 90 || degree == 270) {
+    std::swap(surface_width_px, surface_height_px);
+  }
+  if (!GetRenderSurfaceTarget()->OnScreenSurfaceResize(surface_width_px,
+                                                       surface_height_px)) {
     ELINUX_LOG(ERROR) << "Failed to change surface size.";
     return;
   }
@@ -109,6 +119,12 @@ void FlutterELinuxView::OnWindowMetricsChanged() const {
   PhysicalWindowBounds bounds = binding_handler_->GetPhysicalWindowBounds();
   SendWindowMetrics(bounds.width, bounds.height,
                     binding_handler_->GetDpiScale());
+}
+
+void FlutterELinuxView::OnContentOrientationChanged() {
+  if (textinput_handler_) {
+    textinput_handler_->OnContentOrientationChanged();
+  }
 }
 
 void FlutterELinuxView::OnPointerMove(double x_px, double y_px) {
