@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <locale>
 #include <unordered_map>
 
@@ -290,6 +291,7 @@ const qt_extended_surface_listener
               ELINUX_LOG(INFO)
                   << "qt_extended_surface.onscreen_visibility: " << visible;
               auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
+              self->main_visibility_ = visible;
               // Undocumented; observed on SFOS 5.2: 5 in the foreground, 3
               // while shown as an app cover, 0 when hidden. Bit 2 is taken
               // to mean "cover".
@@ -441,6 +443,7 @@ const wl_callback_listener ELinuxWindowWayland::kWlSurfaceFrameListener = {
           }
 
           self->last_frame_time_nanos_ = static_cast<uint64_t>(time) * 1000000;
+          self->main_frame_count_++;
 
           auto callback = wl_surface_frame(self->native_window_->Surface());
           wl_callback_destroy(wl_callback);
@@ -1298,6 +1301,10 @@ ELinuxWindowWayland::ELinuxWindowWayland(
     const char* env = std::getenv("FLUTTER_SFOS_ROTATION");
     follow_output_transform_ = !(env && std::strcmp(env, "0") == 0);
   }
+  {
+    const char* env = std::getenv("FLUTTER_SFOS_COVER");
+    cover_test_ = env && std::strcmp(env, "test") == 0;
+  }
 
   auto xcursor_size_string = std::getenv(kXcursorSizeEnvironmentKey);
   cursor_size_ =
@@ -1562,6 +1569,22 @@ bool ELinuxWindowWayland::DispatchEvent() {
   }
   wl_display_flush(wl_display_);
 
+  if (cover_window_) {
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const uint64_t now_nanos =
+        static_cast<uint64_t>(now.tv_sec) * 1000000000 + now.tv_nsec;
+    if (now_nanos - cover_stats_time_nanos_ >= 1000000000) {
+      cover_stats_time_nanos_ = now_nanos;
+      ELINUX_LOG(INFO) << "Cover test: frame callbacks/s main "
+                       << main_frame_count_ << ", cover "
+                       << cover_window_->TakeFrameCount()
+                       << "; visibility main " << main_visibility_
+                       << ", cover " << cover_window_->visibility();
+      main_frame_count_ = 0;
+    }
+  }
+
   // Handle Vsync.
   if (binding_handler_delegate_) {
     const uint64_t vsync_interval_time_nanos = 1000000000000 / frame_rate_;
@@ -1725,6 +1748,15 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
   wait_for_configure_ = !use_wl_shell_;
   wl_surface_commit(native_window_->Surface());
 
+  if (use_wl_shell_ && cover_test_ && wl_shm_) {
+    cover_window_ = std::make_unique<CoverWindowWayland>(
+        wl_compositor_, wl_shm_, wl_shell_, qt_surface_extension_,
+        native_window_->Surface(), qt_extended_surface_,
+        view_properties_.app_id);
+    ELINUX_LOG(INFO) << "Cover test window "
+                     << (cover_window_->IsValid() ? "created" : "failed");
+  }
+
   render_surface_ = std::make_unique<SurfaceGl>(std::make_unique<ContextEgl>(
       std::make_unique<EnvironmentEgl>(EGL_PLATFORM_WAYLAND_KHR, wl_display_),
       enable_impeller));
@@ -1771,6 +1803,9 @@ void ELinuxWindowWayland::CreateDecoration(int32_t width_dip,
 }
 
 void ELinuxWindowWayland::DestroyRenderSurface() {
+  // The cover is transient for the main surface, so it goes first.
+  cover_window_ = nullptr;
+
   // destroy the main surface before destroying the client window on Wayland.
   if (window_decorations_) {
     window_decorations_ = nullptr;

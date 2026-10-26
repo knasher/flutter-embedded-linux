@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 #include "flutter/shell/platform/linux_embedded/surface/surface_gl.h"
+#include "flutter/shell/platform/linux_embedded/window/cover_window_wayland.h"
 #include "flutter/shell/platform/linux_embedded/window/elinux_window.h"
 #include "flutter/shell/platform/linux_embedded/window/native_window_wayland.h"
 #include "flutter/shell/platform/linux_embedded/window/renderer/window_decorations_wayland.h"
@@ -276,6 +277,14 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   std::vector<int32_t> preferred_transforms_;
   // Display cut-outs from Silica's settings, in native panel pixels.
   std::vector<PhysicalRect> display_cutouts_;
+
+  // Test cover window (FLUTTER_SFOS_COVER=test), with frame callback counts
+  // for the main and cover windows logged once a second.
+  bool cover_test_ = false;
+  std::unique_ptr<CoverWindowWayland> cover_window_;
+  int32_t main_visibility_ = -1;
+  uint32_t main_frame_count_ = 0;
+  uint64_t cover_stats_time_nanos_ = 0;
 };
 
 }  // namespace flutter
