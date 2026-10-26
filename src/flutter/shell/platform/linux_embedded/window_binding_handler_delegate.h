@@ -22,6 +22,10 @@ class WindowBindingHandlerDelegate {
   // Notifies delegate that the content orientation has changed.
   virtual void OnContentOrientationChanged() {}
 
+  // Notifies delegate that the app's cover window was shown or hidden, or
+  // changed size (Sailfish OS).
+  virtual void OnCoverChanged() {}
+
   // Notifies delegate that backing window mouse has moved. Typically called by
   // currently configured WindowBindingHandler
   // @param[in] x_px The x coordinate of the pointer event in physical pixels.

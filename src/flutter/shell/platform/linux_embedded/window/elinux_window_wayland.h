@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 #include "flutter/shell/platform/linux_embedded/surface/surface_gl.h"
+#include "flutter/shell/platform/linux_embedded/window/cover_window_wayland.h"
 #include "flutter/shell/platform/linux_embedded/window/elinux_window.h"
 #include "flutter/shell/platform/linux_embedded/window/native_window_wayland.h"
 #include "flutter/shell/platform/linux_embedded/window/renderer/window_decorations_wayland.h"
@@ -100,6 +101,17 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   DisplayCutouts GetDisplayCutouts() const override;
 
   // |FlutterWindowBindingHandler|
+  void SetCoverActions(const std::string& actions) override;
+
+  // |FlutterWindowBindingHandler|
+  CoverState GetCoverState() const override;
+
+  // |FlutterWindowBindingHandler|
+  void SetCoverFrame(int32_t width,
+                     int32_t height,
+                     const uint8_t* rgba) override;
+
+  // |FlutterWindowBindingHandler|
   void UpdateVirtualKeyboardArea(int32_t x,
                                  int32_t y,
                                  int32_t width,
@@ -139,6 +151,9 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   void MaybeUpdateDevicePixelRatio();
 
   // Follows the wl_output transform that Lipstick sends on rotation.
+  // Starts or stops drawing as the app's cover.
+  void SetShownAsCover(bool shown_as_cover);
+
   void MaybeApplyOutputTransform();
   bool FollowsOutputTransform() const;
   bool IsTransformAllowed(int32_t transform) const;
@@ -276,6 +291,11 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   std::vector<int32_t> preferred_transforms_;
   // Display cut-outs from Silica's settings, in native panel pixels.
   std::vector<PhysicalRect> display_cutouts_;
+
+  // _APP_COVER_ACTION value; kept until the extended surface exists.
+  std::string cover_actions_;
+  // The app's cover window, once the app has drawn a cover.
+  std::unique_ptr<CoverWindowWayland> cover_window_;
 };
 
 }  // namespace flutter

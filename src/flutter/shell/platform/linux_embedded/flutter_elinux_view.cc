@@ -52,6 +52,9 @@ bool FlutterELinuxView::DispatchEvent() {
   if (textinput_handler_) {
     textinput_handler_->DispatchEvent();
   }
+  if (cover_handler_) {
+    cover_handler_->DispatchEvent();
+  }
   return binding_handler_->DispatchEvent();
 }
 
@@ -86,6 +89,8 @@ void FlutterELinuxView::SetEngine(std::unique_ptr<FlutterELinuxEngine> engine) {
   settings_handler_ = std::make_unique<flutter::SettingsPlugin>(
       internal_plugin_messenger, binding_handler_.get());
   display_cutout_handler_ = std::make_unique<flutter::DisplayCutoutPlugin>(
+      internal_plugin_messenger, binding_handler_.get());
+  cover_handler_ = std::make_unique<flutter::CoverPlugin>(
       internal_plugin_messenger, binding_handler_.get());
 
   PhysicalWindowBounds bounds = binding_handler_->GetPhysicalWindowBounds();
@@ -132,6 +137,12 @@ void FlutterELinuxView::OnContentOrientationChanged() {
   }
   if (display_cutout_handler_) {
     display_cutout_handler_->SendDisplayCutouts();
+  }
+}
+
+void FlutterELinuxView::OnCoverChanged() {
+  if (cover_handler_) {
+    cover_handler_->SendCoverState();
   }
 }
 
@@ -423,6 +434,9 @@ void FlutterELinuxView::SendInitialBounds() {
   // The shell is only chosen once the render surface exists.
   if (display_cutout_handler_) {
     display_cutout_handler_->SendDisplayCutouts();
+  }
+  if (cover_handler_) {
+    cover_handler_->SendCoverState();
   }
 }
 

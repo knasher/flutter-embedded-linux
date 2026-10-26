@@ -22,6 +22,7 @@
 
 #include "flutter/shell/platform/linux_embedded/logger.h"
 #include "flutter/shell/platform/linux_embedded/surface/context_egl.h"
+#include "flutter/shell/platform/linux_embedded/window/qt_window_properties.h"
 
 namespace flutter {
 
@@ -291,13 +292,16 @@ const qt_extended_surface_listener
                   << "qt_extended_surface.onscreen_visibility: " << visible;
               auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
               // Undocumented; observed on SFOS 5.2: 5 in the foreground, 3
-              // while shown as an app cover, 0 when hidden. Bit 2 is taken
-              // to mean "cover".
-              const bool cover = (visible & 2) != 0;
-              if (cover != self->shown_as_cover_) {
-                self->shown_as_cover_ = cover;
-                self->MaybeApplyOutputTransform();
+              // while shown as an app cover, 0 when hidden (also while
+              // minimised, when the home screen is off-screen or dimmed).
+              // Bit 2 is taken to mean "cover". Hidden keeps the current
+              // state, so the window doesn't turn while nobody can see it
+              // and then show up turned in its tile.
+              if (visible == 0) {
+                return;
               }
+              const bool cover = (visible & 2) != 0;
+              self->SetShownAsCover(cover);
             },
         .set_generic_property =
             [](void* data,
@@ -1678,6 +1682,10 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
                                      &kQtExtendedSurfaceListener, this);
     UpdateContentOrientationMask();
     qt_extended_surface_set_window_flags(qt_extended_surface_, 0);
+    if (!cover_actions_.empty()) {
+      SetStringWindowProperty(qt_extended_surface_, "_APP_COVER_ACTION",
+                              cover_actions_);
+    }
   } else {
     xdg_surface_ =
         xdg_wm_base_get_xdg_surface(xdg_wm_base_, native_window_->Surface());
@@ -1771,6 +1779,9 @@ void ELinuxWindowWayland::CreateDecoration(int32_t width_dip,
 }
 
 void ELinuxWindowWayland::DestroyRenderSurface() {
+  // The cover is transient for the main surface, so it goes first.
+  cover_window_ = nullptr;
+
   // destroy the main surface before destroying the client window on Wayland.
   if (window_decorations_) {
     window_decorations_ = nullptr;
@@ -2339,10 +2350,19 @@ bool ELinuxWindowWayland::IsCoverConfigure(int32_t width,
   return conf_long * 5 < disp_long * 4;
 }
 
+void ELinuxWindowWayland::SetShownAsCover(bool shown_as_cover) {
+  if (shown_as_cover == shown_as_cover_) {
+    return;
+  }
+  shown_as_cover_ = shown_as_cover;
+  MaybeApplyOutputTransform();
+}
+
 void ELinuxWindowWayland::MaybeApplyOutputTransform() {
-  // Without a cover window of its own, Lipstick scales this window into the
-  // portrait app cover, so draw portrait while shown as a cover.
-  int32_t target = shown_as_cover_ ? WL_OUTPUT_TRANSFORM_NORMAL : transform_;
+  // While shown as the app's cover, keep the current orientation: Lipstick
+  // shows the window upright in the cover tile as it is, and would animate
+  // a turn there.
+  int32_t target = shown_as_cover_ ? applied_transform_ : transform_;
   // Respect the app's preferred orientations: stay put when the new one isn't
   // allowed, or move to the most preferred one if the current one isn't.
   if (!IsTransformAllowed(target)) {
@@ -2495,6 +2515,55 @@ DisplayCutouts ELinuxWindowWayland::GetDisplayCutouts() const {
     }
   }
   return cutouts;
+}
+
+CoverState ELinuxWindowWayland::GetCoverState() const {
+  CoverState state;
+  // Cover windows need the Qt surface extension, which only the wl_shell
+  // path uses.
+  state.available = use_wl_shell_ && wl_shm_ && qt_extended_surface_;
+  if (!state.available) {
+    return state;
+  }
+  if (cover_window_) {
+    state.visible = cover_window_->visible();
+    state.width = cover_window_->width();
+    state.height = cover_window_->height();
+  } else {
+    state.width = CoverWindowWayland::kDefaultWidth;
+    state.height = CoverWindowWayland::kDefaultHeight;
+  }
+  return state;
+}
+
+void ELinuxWindowWayland::SetCoverFrame(int32_t width,
+                                        int32_t height,
+                                        const uint8_t* rgba) {
+  if (!cover_window_) {
+    if (!GetCoverState().available) {
+      return;
+    }
+    cover_window_ = std::make_unique<CoverWindowWayland>(
+        wl_compositor_, wl_shm_, wl_shell_, qt_surface_extension_,
+        native_window_->Surface(), qt_extended_surface_,
+        view_properties_.app_id, [this]() {
+          if (binding_handler_delegate_) {
+            binding_handler_delegate_->OnCoverChanged();
+          }
+        });
+    if (!cover_window_->IsValid()) {
+      cover_window_ = nullptr;
+      return;
+    }
+  }
+  cover_window_->SetFrame(width, height, rgba);
+}
+
+void ELinuxWindowWayland::SetCoverActions(const std::string& actions) {
+  cover_actions_ = actions;
+  if (qt_extended_surface_) {
+    SetStringWindowProperty(qt_extended_surface_, "_APP_COVER_ACTION", actions);
+  }
 }
 
 bool ELinuxWindowWayland::IsTransformAllowed(int32_t transform) const {

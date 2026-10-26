@@ -83,8 +83,10 @@ else()
     "${_wayland_protocols_src_dir}/presentation-time-protocol.c"
     "${_wayland_protocols_src_dir}/xdg-decoration-unstable-v1-protocol.c"
     "${_wayland_protocols_src_dir}/surface-extension-protocol.c"
+    "src/flutter/shell/platform/linux_embedded/window/cover_window_wayland.cc"
     "src/flutter/shell/platform/linux_embedded/window/elinux_window_wayland.cc"
     "src/flutter/shell/platform/linux_embedded/window/native_window_wayland.cc"
+    "src/flutter/shell/platform/linux_embedded/window/qt_window_properties.cc"
     "src/flutter/shell/platform/linux_embedded/window/native_window_wayland_decoration.cc"
     "src/flutter/shell/platform/linux_embedded/window/renderer/elinux_shader.cc"
     "src/flutter/shell/platform/linux_embedded/window/renderer/elinux_shader_context.cc"
@@ -157,6 +159,7 @@ set(ELINUX_COMMON_SRC
   "src/flutter/shell/platform/linux_embedded/external_texture_egl_image.cc"
   "src/flutter/shell/platform/linux_embedded/vsync_waiter.cc"
   "src/flutter/shell/platform/linux_embedded/flutter_elinux_texture_registrar.cc"
+  "src/flutter/shell/platform/linux_embedded/plugins/cover_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/display_cutout_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/keyboard_glfw_util.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/key_event_plugin.cc"
@@ -242,6 +245,7 @@ target_include_directories(${TARGET}
     ${X11_INCLUDE_DIRS}
     ${LIBWESTON_INCLUDE_DIRS}
     ${GLIB_INCLUDE_DIRS}
+    ${GIO_INCLUDE_DIRS}
     ${MALIIT_GLIB_INCLUDE_DIRS}
     ## User libraries
     ${USER_APP_INCLUDE_DIRS}
@@ -263,6 +267,7 @@ target_link_libraries(${TARGET}
     ${X11_LIBRARIES}
     ${LIBWESTON_LIBRARIES}
     ${GLIB_LIBRARIES}
+    ${GIO_LIBRARIES}
     ${MALIIT_GLIB_LIBRARIES}
     ${FLUTTER_EMBEDDER_LIB}
     ## User libraries
