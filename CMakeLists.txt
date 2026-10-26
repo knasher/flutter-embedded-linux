@@ -22,6 +22,7 @@ option(ENABLE_VSYNC "Enable embedder vsync" OFF)
 option(BUILD_ELINUX_SO "Build .so file of elinux embedder" OFF)
 option(ENABLE_ELINUX_EMBEDDER_LOG "Enable logger of eLinux embedder" ON)
 option(FLUTTER_RELEASE "Build Flutter Engine with release mode" OFF)
+set(FLUTTER_SFOS_LIBDIR "" CACHE STRING "RPATH to the versioned flutter-sfos library directory")
 
 if(NOT BUILD_ELINUX_SO)
   # Load the user project.

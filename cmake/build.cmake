@@ -271,6 +271,12 @@ endif()
 
 set(FLUTTER_EMBEDDER_LIB "${CMAKE_CURRENT_SOURCE_DIR}/build/libflutter_engine.so")
 set(CMAKE_SKIP_RPATH true)
+if(FLUTTER_SFOS_LIBDIR)
+  set(CMAKE_SKIP_RPATH false)
+  set(CMAKE_BUILD_WITH_INSTALL_RPATH true)
+  set(CMAKE_INSTALL_RPATH "${FLUTTER_SFOS_LIBDIR}")
+  target_link_options(${TARGET} PRIVATE "-Wl,-rpath,${FLUTTER_SFOS_LIBDIR}")
+endif()
 target_link_libraries(${TARGET}
   PRIVATE
     ${FLUTTER_EMBEDDER_LIB}
