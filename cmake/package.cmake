@@ -42,3 +42,6 @@ endif()
 # requires for supporting external texture plugin.
 # OpenGL ES3 are included in glesv2.
 pkg_check_modules(GLES REQUIRED glesv2)
+
+pkg_check_modules(GLIB REQUIRED glib-2.0)
+pkg_check_modules(MALIIT_GLIB REQUIRED maliit-glib)

@@ -9,6 +9,11 @@
 
 #include <memory>
 
+#include <glib.h>
+#include <maliit-glib/maliitbus.h>
+#include <maliit-glib/maliitcontext.h>
+#include <maliit-glib/maliitserver.h>
+
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/binary_messenger.h"
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/method_channel.h"
 #include "flutter/shell/platform/common/text_input_model.h"
@@ -22,8 +27,42 @@ class TextInputPlugin {
   ~TextInputPlugin() = default;
 
   void OnKeyPressed(uint32_t keycode, uint32_t code_point);
+  void DispatchEvent();
 
  private:
+  void InitMaliitConnection();
+  void MaliitShowInputMethod();
+  void MaliitHideInputMethod();
+
+  static gboolean MaliitHandleIMInitiatedHide(MaliitContext* obj,
+                                              GDBusMethodInvocation* invocation,
+                                              gpointer user_data);
+  static gboolean MaliitHandleCommitString(MaliitContext* obj,
+                                           GDBusMethodInvocation* invocation,
+                                           const gchar* string,
+                                           int replacement_start,
+                                           int replacement_length,
+                                           int cursor_pos,
+                                           gpointer user_data);
+  static gboolean MaliitHandleUpdatePreedit(MaliitContext* obj,
+                                            GDBusMethodInvocation* invocation,
+                                            const gchar* string,
+                                            GVariant* format_list_data,
+                                            gint replace_start,
+                                            gint replace_length,
+                                            gint cursor_pos,
+                                            gpointer user_data);
+  static gboolean MaliitHandleKeyEvent(MaliitContext* obj,
+                                       GDBusMethodInvocation* invocation,
+                                       gint type,
+                                       gint key,
+                                       gint modifiers,
+                                       const gchar* text,
+                                       gboolean auto_repeat,
+                                       int count,
+                                       guchar request_type,
+                                       gpointer user_data);
+
   // Sends the current state of the given model to the Flutter engine.
   void SendStateUpdate(const TextInputModel& model);
 
@@ -54,6 +93,11 @@ class TextInputPlugin {
 
   // The delegate for virtual keyboard updates.
   WindowBindingHandler* delegate_;
+
+  GMainContext* glib_ctx_ = nullptr;
+  GMainLoop* glib_loop_ = nullptr;
+  MaliitServer* maliit_server_ = nullptr;
+  MaliitContext* maliit_context_ = nullptr;
 };
 
 }  // namespace flutter

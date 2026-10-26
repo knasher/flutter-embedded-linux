@@ -233,6 +233,8 @@ target_include_directories(${TARGET}
     ${LIBSYSTEMD_INCLUDE_DIRS}
     ${X11_INCLUDE_DIRS}
     ${LIBWESTON_INCLUDE_DIRS}
+    ${GLIB_INCLUDE_DIRS}
+    ${MALIIT_GLIB_INCLUDE_DIRS}
     ## User libraries
     ${USER_APP_INCLUDE_DIRS}
 )
@@ -252,6 +254,8 @@ target_link_libraries(${TARGET}
     ${LIBUV_LIBRARIES}
     ${X11_LIBRARIES}
     ${LIBWESTON_LIBRARIES}
+    ${GLIB_LIBRARIES}
+    ${MALIIT_GLIB_LIBRARIES}
     ${FLUTTER_EMBEDDER_LIB}
     ## User libraries
     ${USER_APP_LIBRARIES}
