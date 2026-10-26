@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
+#include <dconf.h>
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -61,29 +63,31 @@ double SnapDevicePixelRatio(double dpi) {
   return dpr;
 }
 
+// Reads a dconf key as the dconf tool prints it, or "" if it isn't set.
+// In-process, since a Sailjail sandbox has no dconf tool (or shell) to run.
+std::string ReadDconf(const char* key) {
+  DConfClient* client = dconf_client_new();
+  GVariant* value = dconf_client_read(client, key);
+  g_object_unref(client);
+  if (!value) {
+    return std::string();
+  }
+  gchar* text = g_variant_print(value, TRUE);
+  std::string result(text);
+  g_free(text);
+  g_variant_unref(value);
+  return result;
+}
+
 double ReadDconfDouble(const char* key) {
-  char cmd[256];
-  std::snprintf(cmd, sizeof(cmd), "dconf read %s 2>/dev/null", key);
-  FILE* pipe = popen(cmd, "r");
-  if (!pipe) {
-    return 0.0;
-  }
-  char buf[128] = {};
-  if (!std::fgets(buf, sizeof(buf), pipe)) {
-    pclose(pipe);
-    return 0.0;
-  }
-  pclose(pipe);
-  char stripped[128] = {};
-  size_t j = 0;
-  for (size_t i = 0; buf[i] != '\0' && j + 1 < sizeof(stripped); ++i) {
-    const char c = buf[i];
+  std::string stripped;
+  for (const char c : ReadDconf(key)) {
     if (c != '\'' && c != '"' && c != ' ' && c != '\n' && c != '\r' &&
         c != '\t') {
-      stripped[j++] = c;
+      stripped += c;
     }
   }
-  return std::atof(stripped);
+  return std::atof(stripped.c_str());
 }
 
 double ReadDevicePixelRatio() {
@@ -101,17 +105,7 @@ double ReadDevicePixelRatio() {
 // [x, y, width, height] in native panel pixels.
 std::vector<PhysicalRect> ReadDisplayCutouts() {
   std::vector<PhysicalRect> cutouts;
-  FILE* pipe =
-      popen("dconf read /desktop/sailfish/silica/cutouts 2>/dev/null", "r");
-  if (!pipe) {
-    return cutouts;
-  }
-  std::string value;
-  char buf[256];
-  while (std::fgets(buf, sizeof(buf), pipe)) {
-    value += buf;
-  }
-  pclose(pipe);
+  const std::string value = ReadDconf("/desktop/sailfish/silica/cutouts");
 
   // Each innermost [...] holds one rectangle.
   size_t open = value.find('[');
