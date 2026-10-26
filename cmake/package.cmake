@@ -45,4 +45,5 @@ pkg_check_modules(GLES REQUIRED glesv2)
 
 pkg_check_modules(GLIB REQUIRED glib-2.0)
 pkg_check_modules(GIO REQUIRED gio-2.0)
+pkg_check_modules(DCONF REQUIRED dconf)
 pkg_check_modules(MALIIT_GLIB REQUIRED maliit-glib)
