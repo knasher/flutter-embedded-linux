@@ -13,6 +13,7 @@
 #include "flutter/shell/platform/embedder/embedder.h"
 #include "flutter/shell/platform/linux_embedded/flutter_elinux_engine.h"
 #include "flutter/shell/platform/linux_embedded/flutter_elinux_state.h"
+#include "flutter/shell/platform/linux_embedded/plugins/display_cutout_plugin.h"
 #include "flutter/shell/platform/linux_embedded/plugins/key_event_plugin.h"
 #include "flutter/shell/platform/linux_embedded/plugins/lifecycle_plugin.h"
 #include "flutter/shell/platform/linux_embedded/plugins/mouse_cursor_plugin.h"
@@ -311,6 +312,9 @@ class FlutterELinuxView : public WindowBindingHandlerDelegate {
 
   // Handler for flutter/settings channel.
   std::unique_ptr<flutter::SettingsPlugin> settings_handler_;
+
+  // Handler for flutter-sfos/display_cutouts channel.
+  std::unique_ptr<flutter::DisplayCutoutPlugin> display_cutout_handler_;
 
   // Currently configured WindowBindingHandler for view.
   std::unique_ptr<flutter::WindowBindingHandler> binding_handler_;

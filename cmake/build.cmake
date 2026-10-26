@@ -157,6 +157,7 @@ set(ELINUX_COMMON_SRC
   "src/flutter/shell/platform/linux_embedded/external_texture_egl_image.cc"
   "src/flutter/shell/platform/linux_embedded/vsync_waiter.cc"
   "src/flutter/shell/platform/linux_embedded/flutter_elinux_texture_registrar.cc"
+  "src/flutter/shell/platform/linux_embedded/plugins/display_cutout_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/keyboard_glfw_util.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/key_event_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/lifecycle_plugin.cc"

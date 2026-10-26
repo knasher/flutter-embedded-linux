@@ -95,6 +95,42 @@ double ReadDevicePixelRatio() {
   return SnapDevicePixelRatio(
       ReadDconfDouble("/lipstick/screen/primary/physicalDotsPerInch"));
 }
+
+// Reads Silica's display cut-outs, e.g. "[[310, 0, 414, 66]]": rectangles as
+// [x, y, width, height] in native panel pixels.
+std::vector<PhysicalRect> ReadDisplayCutouts() {
+  std::vector<PhysicalRect> cutouts;
+  FILE* pipe =
+      popen("dconf read /desktop/sailfish/silica/cutouts 2>/dev/null", "r");
+  if (!pipe) {
+    return cutouts;
+  }
+  std::string value;
+  char buf[256];
+  while (std::fgets(buf, sizeof(buf), pipe)) {
+    value += buf;
+  }
+  pclose(pipe);
+
+  // Each innermost [...] holds one rectangle.
+  size_t open = value.find('[');
+  while (open != std::string::npos) {
+    const size_t next = value.find('[', open + 1);
+    const size_t close = value.find(']', open + 1);
+    if (close != std::string::npos &&
+        (next == std::string::npos || close < next)) {
+      PhysicalRect rect;
+      if (std::sscanf(value.c_str() + open + 1, "%d , %d , %d , %d",
+                      &rect.left, &rect.top, &rect.width,
+                      &rect.height) == 4 &&
+          rect.width > 0 && rect.height > 0) {
+        cutouts.push_back(rect);
+      }
+    }
+    open = next;
+  }
+  return cutouts;
+}
 }  // namespace
 
 const wl_registry_listener ELinuxWindowWayland::kWlRegistryListener = {
@@ -1241,6 +1277,11 @@ ELinuxWindowWayland::ELinuxWindowWayland(
   } else if (const double ratio = ReadDevicePixelRatio(); ratio > 0.0) {
     device_pixel_ratio_ = ratio;
     device_pixel_ratio_locked_ = true;
+  }
+  display_cutouts_ = ReadDisplayCutouts();
+  for (const auto& c : display_cutouts_) {
+    ELINUX_LOG(INFO) << "Display cut-out: " << c.width << "x" << c.height
+                     << " at " << c.left << "," << c.top;
   }
   SetRotation(view_properties_.view_rotation);
 
@@ -2403,6 +2444,57 @@ void ELinuxWindowWayland::SetPreferredOrientations(
   }
   UpdateContentOrientationMask();
   MaybeApplyOutputTransform();
+}
+
+DisplayCutouts ELinuxWindowWayland::GetDisplayCutouts() const {
+  DisplayCutouts cutouts;
+  // Only fullscreen wl_shell windows cover the whole panel. Lipstick keeps
+  // xdg_shell windows clear of the cut-outs itself.
+  if (!use_wl_shell_) {
+    return cutouts;
+  }
+  const int32_t view_width = GetCurrentWidth();
+  const int32_t view_height = GetCurrentHeight();
+  const bool sideways = current_rotation_ == 90 || current_rotation_ == 270;
+  const int32_t native_width = sideways ? view_height : view_width;
+  const int32_t native_height = sideways ? view_width : view_height;
+  for (const auto& c : display_cutouts_) {
+    // Native panel to view coordinates, as for touch input.
+    PhysicalRect r = c;
+    switch (current_rotation_) {
+      case 90:
+        r = {c.top, native_width - c.left - c.width, c.height, c.width};
+        break;
+      case 180:
+        r = {native_width - c.left - c.width, native_height - c.top - c.height,
+             c.width, c.height};
+        break;
+      case 270:
+        r = {native_height - c.top - c.height, c.left, c.height, c.width};
+        break;
+      default:
+        break;
+    }
+    cutouts.rects.push_back(r);
+
+    // Pad the view edge the cut-out is nearest to, up to its far side.
+    const int32_t to_top = r.top;
+    const int32_t to_right = view_width - r.left - r.width;
+    const int32_t to_bottom = view_height - r.top - r.height;
+    const int32_t to_left = r.left;
+    const int32_t nearest = std::min({to_top, to_right, to_bottom, to_left});
+    auto& padding = cutouts.padding;
+    if (nearest == to_top) {
+      padding.top = std::max<double>(padding.top, r.top + r.height);
+    } else if (nearest == to_bottom) {
+      padding.bottom = std::max<double>(padding.bottom, view_height - r.top);
+    } else if (nearest == to_left) {
+      padding.left = std::max<double>(padding.left, r.left + r.width);
+    } else {
+      padding.right = std::max<double>(padding.right, view_width - r.left);
+    }
+  }
+  return cutouts;
 }
 
 bool ELinuxWindowWayland::IsTransformAllowed(int32_t transform) const {

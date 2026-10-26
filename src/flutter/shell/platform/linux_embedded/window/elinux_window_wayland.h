@@ -97,6 +97,9 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
       const std::vector<DeviceOrientation>& orientations) override;
 
   // |FlutterWindowBindingHandler|
+  DisplayCutouts GetDisplayCutouts() const override;
+
+  // |FlutterWindowBindingHandler|
   void UpdateVirtualKeyboardArea(int32_t x,
                                  int32_t y,
                                  int32_t width,
@@ -271,6 +274,8 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   bool shown_as_cover_ = false;
   // Allowed wl_output transforms, most preferred first; empty allows any.
   std::vector<int32_t> preferred_transforms_;
+  // Display cut-outs from Silica's settings, in native panel pixels.
+  std::vector<PhysicalRect> display_cutouts_;
 };
 
 }  // namespace flutter

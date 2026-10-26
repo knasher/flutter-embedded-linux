@@ -30,6 +30,21 @@ struct PhysicalViewInsets {
   double left = 0;
 };
 
+// A rectangle in physical pixels.
+struct PhysicalRect {
+  int32_t left = 0;
+  int32_t top = 0;
+  int32_t width = 0;
+  int32_t height = 0;
+};
+
+// Display cut-outs (e.g. a camera notch) in view coordinates for the current
+// content orientation, and the padding that keeps content clear of them.
+struct DisplayCutouts {
+  std::vector<PhysicalRect> rects;
+  PhysicalViewInsets padding;
+};
+
 // Orientations from SystemChrome.setPreferredOrientations.
 enum class DeviceOrientation {
   kPortraitUp,
@@ -108,6 +123,9 @@ class WindowBindingHandler {
   // allows any orientation.
   virtual void SetPreferredOrientations(
       const std::vector<DeviceOrientation>& orientations) {}
+
+  // Returns the display cut-outs the view is drawn under, if any.
+  virtual DisplayCutouts GetDisplayCutouts() const { return {}; }
 
   // Returns the clipboard data.
   virtual std::string GetClipboardData() = 0;

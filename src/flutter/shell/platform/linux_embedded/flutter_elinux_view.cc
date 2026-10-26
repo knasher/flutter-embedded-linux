@@ -85,6 +85,8 @@ void FlutterELinuxView::SetEngine(std::unique_ptr<FlutterELinuxEngine> engine) {
       std::make_unique<flutter::PlatformViewsPlugin>(internal_plugin_messenger);
   settings_handler_ = std::make_unique<flutter::SettingsPlugin>(
       internal_plugin_messenger, binding_handler_.get());
+  display_cutout_handler_ = std::make_unique<flutter::DisplayCutoutPlugin>(
+      internal_plugin_messenger, binding_handler_.get());
 
   PhysicalWindowBounds bounds = binding_handler_->GetPhysicalWindowBounds();
   SendWindowMetrics(bounds.width, bounds.height,
@@ -113,6 +115,9 @@ void FlutterELinuxView::OnWindowSizeChanged(size_t width_px,
     return;
   }
   SendWindowMetrics(width_px, height_px, binding_handler_->GetDpiScale());
+  if (display_cutout_handler_) {
+    display_cutout_handler_->SendDisplayCutouts();
+  }
 }
 
 void FlutterELinuxView::OnWindowMetricsChanged() const {
@@ -124,6 +129,9 @@ void FlutterELinuxView::OnWindowMetricsChanged() const {
 void FlutterELinuxView::OnContentOrientationChanged() {
   if (textinput_handler_) {
     textinput_handler_->OnContentOrientationChanged();
+  }
+  if (display_cutout_handler_) {
+    display_cutout_handler_->SendDisplayCutouts();
   }
 }
 
@@ -412,6 +420,10 @@ void FlutterELinuxView::SendInitialBounds() {
   PhysicalWindowBounds bounds = binding_handler_->GetPhysicalWindowBounds();
   SendWindowMetrics(bounds.width, bounds.height,
                     binding_handler_->GetDpiScale());
+  // The shell is only chosen once the render surface exists.
+  if (display_cutout_handler_) {
+    display_cutout_handler_->SendDisplayCutouts();
+  }
 }
 
 // Set's |event_data|'s phase to either kMove or kHover depending on the current
