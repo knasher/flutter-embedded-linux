@@ -23,6 +23,7 @@
 
 #include "flutter/shell/platform/linux_embedded/logger.h"
 #include "flutter/shell/platform/linux_embedded/surface/context_egl.h"
+#include "flutter/shell/platform/linux_embedded/window/qt_window_properties.h"
 
 namespace flutter {
 
@@ -293,12 +294,21 @@ const qt_extended_surface_listener
               auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
               self->main_visibility_ = visible;
               // Undocumented; observed on SFOS 5.2: 5 in the foreground, 3
-              // while shown as an app cover, 0 when hidden. Bit 2 is taken
-              // to mean "cover".
+              // while shown as an app cover, 0 when hidden (also while
+              // minimised, when the home screen is off-screen or dimmed).
+              // Bit 2 is taken to mean "cover". Hidden keeps the current
+              // state, so the window isn't switched back to the app while
+              // nobody can see it, only to flash up when the cover returns.
+              if (visible == 0) {
+                return;
+              }
               const bool cover = (visible & 2) != 0;
               if (cover != self->shown_as_cover_) {
                 self->shown_as_cover_ = cover;
                 self->MaybeApplyOutputTransform();
+                if (self->binding_handler_delegate_) {
+                  self->binding_handler_delegate_->OnShownAsCoverChanged(cover);
+                }
               }
             },
         .set_generic_property =
@@ -1701,6 +1711,10 @@ bool ELinuxWindowWayland::CreateRenderSurface(int32_t width_px,
                                      &kQtExtendedSurfaceListener, this);
     UpdateContentOrientationMask();
     qt_extended_surface_set_window_flags(qt_extended_surface_, 0);
+    if (!cover_actions_.empty()) {
+      SetStringWindowProperty(qt_extended_surface_, "_APP_COVER_ACTION",
+                              cover_actions_);
+    }
   } else {
     xdg_surface_ =
         xdg_wm_base_get_xdg_surface(xdg_wm_base_, native_window_->Surface());
@@ -2530,6 +2544,13 @@ DisplayCutouts ELinuxWindowWayland::GetDisplayCutouts() const {
     }
   }
   return cutouts;
+}
+
+void ELinuxWindowWayland::SetCoverActions(const std::string& actions) {
+  cover_actions_ = actions;
+  if (qt_extended_surface_) {
+    SetStringWindowProperty(qt_extended_surface_, "_APP_COVER_ACTION", actions);
+  }
 }
 
 bool ELinuxWindowWayland::IsTransformAllowed(int32_t transform) const {

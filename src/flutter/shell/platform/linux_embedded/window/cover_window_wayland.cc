@@ -8,11 +8,10 @@
 #include <unistd.h>
 
 #include <algorithm>
-#include <cstring>
 #include <string>
-#include <vector>
 
 #include "flutter/shell/platform/linux_embedded/logger.h"
+#include "flutter/shell/platform/linux_embedded/window/qt_window_properties.h"
 
 namespace flutter {
 
@@ -22,59 +21,6 @@ namespace {
 // only between windows of the same process, so small fixed numbers will do.
 constexpr uint64_t kMainWindowId = 1;
 constexpr uint64_t kCoverWindowId = 2;
-
-// Qt surface extension property values are QVariants serialised by
-// QDataStream (Qt 5): big-endian type id, a null flag byte, then the value.
-constexpr uint32_t kQMetaTypeBool = 1;
-constexpr uint32_t kQMetaTypeULongLong = 5;
-constexpr uint32_t kQMetaTypeQString = 10;
-
-void AppendU32(std::vector<uint8_t>& out, uint32_t value) {
-  for (int shift = 24; shift >= 0; shift -= 8) {
-    out.push_back(static_cast<uint8_t>(value >> shift));
-  }
-}
-
-std::vector<uint8_t> VariantHeader(uint32_t type) {
-  std::vector<uint8_t> out;
-  AppendU32(out, type);
-  out.push_back(0);  // Not null.
-  return out;
-}
-
-std::vector<uint8_t> BoolVariant(bool value) {
-  auto out = VariantHeader(kQMetaTypeBool);
-  out.push_back(value ? 1 : 0);
-  return out;
-}
-
-std::vector<uint8_t> ULongLongVariant(uint64_t value) {
-  auto out = VariantHeader(kQMetaTypeULongLong);
-  AppendU32(out, static_cast<uint32_t>(value >> 32));
-  AppendU32(out, static_cast<uint32_t>(value));
-  return out;
-}
-
-// ASCII only: QString is streamed as its UTF-16 byte length, then UTF-16BE.
-std::vector<uint8_t> StringVariant(const std::string& value) {
-  auto out = VariantHeader(kQMetaTypeQString);
-  AppendU32(out, static_cast<uint32_t>(value.size() * 2));
-  for (char c : value) {
-    out.push_back(0);
-    out.push_back(static_cast<uint8_t>(c));
-  }
-  return out;
-}
-
-void SetWindowProperty(qt_extended_surface* surface,
-                       const char* name,
-                       const std::vector<uint8_t>& value) {
-  wl_array array;
-  wl_array_init(&array);
-  std::memcpy(wl_array_add(&array, value.size()), value.data(), value.size());
-  qt_extended_surface_update_generic_property(surface, name, &array);
-  wl_array_release(&array);
-}
 
 }  // namespace
 
@@ -190,17 +136,14 @@ CoverWindowWayland::CoverWindowWayland(
   qt_extended_surface_set_content_orientation_mask(extended_surface_, 15);
   qt_extended_surface_set_window_flags(extended_surface_, 0);
 
-  SetWindowProperty(extended_surface_, "TRANSPARENT", BoolVariant(false));
-  SetWindowProperty(extended_surface_, "WINID",
-                    ULongLongVariant(kCoverWindowId));
-  SetWindowProperty(extended_surface_, "CATEGORY", StringVariant("cover"));
+  SetBoolWindowProperty(extended_surface_, "TRANSPARENT", false);
+  SetULongLongWindowProperty(extended_surface_, "WINID", kCoverWindowId);
+  SetStringWindowProperty(extended_surface_, "CATEGORY", "cover");
 
-  SetWindowProperty(main_extended_surface, "WINID",
-                    ULongLongVariant(kMainWindowId));
-  SetWindowProperty(main_extended_surface, "SAILFISH_COVER_WINDOW",
-                    StringVariant("__winref:" + std::to_string(kCoverWindowId)));
-  SetWindowProperty(main_extended_surface, "SAILFISH_HAVE_COVER",
-                    BoolVariant(true));
+  SetULongLongWindowProperty(main_extended_surface, "WINID", kMainWindowId);
+  SetStringWindowProperty(main_extended_surface, "SAILFISH_COVER_WINDOW",
+                          "__winref:" + std::to_string(kCoverWindowId));
+  SetBoolWindowProperty(main_extended_surface, "SAILFISH_HAVE_COVER", true);
 
   if (CreateBuffers()) {
     Draw();

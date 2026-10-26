@@ -127,6 +127,10 @@ class WindowBindingHandler {
   // Returns the display cut-outs the view is drawn under, if any.
   virtual DisplayCutouts GetDisplayCutouts() const { return {}; }
 
+  // Sets the buttons Sailfish OS shows on the app's cover, as the value of
+  // the _APP_COVER_ACTION window property (empty for none).
+  virtual void SetCoverActions(const std::string& actions) {}
+
   // Returns the clipboard data.
   virtual std::string GetClipboardData() = 0;
 

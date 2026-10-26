@@ -101,6 +101,9 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   DisplayCutouts GetDisplayCutouts() const override;
 
   // |FlutterWindowBindingHandler|
+  void SetCoverActions(const std::string& actions) override;
+
+  // |FlutterWindowBindingHandler|
   void UpdateVirtualKeyboardArea(int32_t x,
                                  int32_t y,
                                  int32_t width,
@@ -277,6 +280,9 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   std::vector<int32_t> preferred_transforms_;
   // Display cut-outs from Silica's settings, in native panel pixels.
   std::vector<PhysicalRect> display_cutouts_;
+
+  // _APP_COVER_ACTION value; kept until the extended surface exists.
+  std::string cover_actions_;
 
   // Test cover window (FLUTTER_SFOS_COVER=test), with frame callback counts
   // for the main and cover windows logged once a second.
