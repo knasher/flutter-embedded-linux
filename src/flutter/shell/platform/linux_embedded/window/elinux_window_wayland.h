@@ -116,6 +116,8 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   // Updates the surface scale of the window from the list of entered outputs.
   void UpdateWindowScale();
 
+  void MaybeUpdateDevicePixelRatio();
+
   void CreateDecoration(int32_t width_dip, int32_t height_dip);
 
   // Get window decorations height in physical pixels.
@@ -221,6 +223,10 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   std::string text_input_type_;
 
   uint32_t text_input_serial_;
+
+  int32_t output_physical_width_mm_ = 0;
+  int32_t output_mode_width_ = 0;
+  bool device_pixel_ratio_locked_ = false;
 };
 
 }  // namespace flutter

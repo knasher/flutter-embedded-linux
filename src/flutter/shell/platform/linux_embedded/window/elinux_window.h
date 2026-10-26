@@ -46,7 +46,7 @@ class ELinuxWindow {
     if (binding_handler_delegate_) {
       binding_handler_delegate_->UpdateDisplayInfo(
           static_cast<double>(frame_rate_) / 1000.0, GetCurrentWidth(),
-          GetCurrentHeight(), current_scale_);
+          GetCurrentHeight(), device_pixel_ratio_);
     }
   }
 
@@ -60,6 +60,7 @@ class ELinuxWindow {
   int32_t display_max_height_ = -1;
   int32_t frame_rate_ = 60000;
   double current_scale_ = 1.0;
+  double device_pixel_ratio_ = 1.0;
   uint16_t current_rotation_ = 0;
   // The x coordinate of the pointer in physical pixels.
   double pointer_x_ = 0;
