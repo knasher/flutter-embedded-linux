@@ -175,6 +175,10 @@ const xdg_toplevel_listener ELinuxWindowWayland::kXdgToplevelListener = {
             std::swap(width, height);
           }
 
+          if (self->IsCoverConfigure(width, height)) {
+            return;
+          }
+
           int32_t next_width_dip = width / self->current_scale_;
           int32_t next_height_dip = height / self->current_scale_;
           if (self->restore_window_required_) {
@@ -2035,6 +2039,20 @@ void ELinuxWindowWayland::DismissVirtualKeybaord() {
     zwp_text_input_v1_deactivate(zwp_text_input_v1_,
                                  seat_inputs_map_.begin()->first);
   }
+}
+
+bool ELinuxWindowWayland::IsCoverConfigure(int32_t width,
+                                           int32_t height) const {
+  if (view_properties_.view_mode != FlutterDesktopViewMode::kFullscreen) {
+    return false;
+  }
+  if (display_max_width_ <= 0 || display_max_height_ <= 0 || width <= 0 ||
+      height <= 0) {
+    return false;
+  }
+  const int32_t conf_long = std::max(width, height);
+  const int32_t disp_long = std::max(display_max_width_, display_max_height_);
+  return conf_long * 5 < disp_long * 4;
 }
 
 void ELinuxWindowWayland::MaybeUpdateDevicePixelRatio() {

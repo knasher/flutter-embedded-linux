@@ -118,6 +118,8 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
 
   void MaybeUpdateDevicePixelRatio();
 
+  bool IsCoverConfigure(int32_t width, int32_t height) const;
+
   void CreateDecoration(int32_t width_dip, int32_t height_dip);
 
   // Get window decorations height in physical pixels.
