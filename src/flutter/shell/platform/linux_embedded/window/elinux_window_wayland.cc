@@ -292,15 +292,25 @@ const qt_extended_surface_listener
                   << "qt_extended_surface.onscreen_visibility: " << visible;
               auto self = reinterpret_cast<ELinuxWindowWayland*>(data);
               // Undocumented; observed on SFOS 5.2: 5 in the foreground, 3
-              // while shown as an app cover, 0 when hidden (also while
-              // minimised, when the home screen is off-screen or dimmed).
-              // Bit 2 is taken to mean "cover". Hidden keeps the current
-              // state, so the window doesn't turn while nobody can see it
-              // and then show up turned in its tile.
+              // while shown as the app's cover (its thumbnail in the tile),
+              // 0 when not shown at all (minimised behind a cover window,
+              // screen off, home screen off-view, another app in front).
+              // Bit 2 is taken to mean "cover".
+              const bool cover = (visible & 2) != 0;
+              if (self->binding_handler_delegate_) {
+                using AppVisibility =
+                    WindowBindingHandlerDelegate::AppVisibility;
+                self->binding_handler_delegate_->OnAppVisibilityChanged(
+                    visible == 0 ? AppVisibility::kBackground
+                    : cover      ? AppVisibility::kThumbnail
+                                 : AppVisibility::kForeground);
+              }
+              // Hidden keeps the current orientation, so the window doesn't
+              // turn while nobody can see it and then show up turned in its
+              // tile.
               if (visible == 0) {
                 return;
               }
-              const bool cover = (visible & 2) != 0;
               self->SetShownAsCover(cover);
             },
         .set_generic_property =

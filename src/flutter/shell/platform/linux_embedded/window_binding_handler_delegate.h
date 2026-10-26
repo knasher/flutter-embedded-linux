@@ -26,6 +26,19 @@ class WindowBindingHandlerDelegate {
   // changed size (Sailfish OS).
   virtual void OnCoverChanged() {}
 
+  // How the compositor shows the app (Sailfish OS).
+  enum class AppVisibility {
+    // In front.
+    kForeground,
+    // Only as a thumbnail, such as its tile on the home screen.
+    kThumbnail,
+    // Not at all: minimised behind a cover window, screen off, and so on.
+    kBackground,
+  };
+
+  // Notifies delegate that the compositor shows the app differently.
+  virtual void OnAppVisibilityChanged(AppVisibility visibility) {}
+
   // Notifies delegate that backing window mouse has moved. Typically called by
   // currently configured WindowBindingHandler
   // @param[in] x_px The x coordinate of the pointer event in physical pixels.

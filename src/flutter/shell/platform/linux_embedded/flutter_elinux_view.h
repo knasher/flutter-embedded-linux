@@ -6,6 +6,7 @@
 #define FLUTTER_SHELL_PLATFORM_LINUX_EMBEDDED_FLUTTER_ELINUX_VIEW_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -98,6 +99,9 @@ class FlutterELinuxView : public WindowBindingHandlerDelegate {
 
   // |WindowBindingHandlerDelegate|
   void OnCoverChanged() override;
+
+  // |WindowBindingHandlerDelegate|
+  void OnAppVisibilityChanged(AppVisibility visibility) override;
 
   // |WindowBindingHandlerDelegate|
   void OnPointerMove(double x_px, double y_px) override;
@@ -307,6 +311,9 @@ class FlutterELinuxView : public WindowBindingHandlerDelegate {
 
   // Handler for app lifecycle events.
   std::unique_ptr<flutter::LifecyclePlugin> lifecycle_handler_;
+
+  // Last app visibility passed on as a lifecycle state.
+  std::optional<AppVisibility> app_visibility_;
 
   // Handler for flutter/navigation channel.
   std::unique_ptr<flutter::NavigationPlugin> navigation_handler_;
