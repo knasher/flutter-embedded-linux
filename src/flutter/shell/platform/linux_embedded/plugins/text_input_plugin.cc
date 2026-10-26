@@ -297,6 +297,7 @@ gboolean TextInputPlugin::MaliitHandleIMInitiatedHide(
     self->active_model_->EndComposing();
     self->SendStateUpdate(*self->active_model_);
   }
+  self->delegate_->UpdateVirtualKeyboardArea(0, 0, 0, 0);
   return FALSE;
 }
 
@@ -367,6 +368,19 @@ gboolean TextInputPlugin::MaliitHandleKeyEvent(MaliitContext* obj,
   return TRUE;
 }
 
+gboolean TextInputPlugin::MaliitHandleUpdateInputMethodArea(
+    MaliitContext* obj,
+    GDBusMethodInvocation* invocation,
+    gint x,
+    gint y,
+    gint width,
+    gint height,
+    gpointer user_data) {
+  auto* self = reinterpret_cast<TextInputPlugin*>(user_data);
+  self->delegate_->UpdateVirtualKeyboardArea(x, y, width, height);
+  return TRUE;
+}
+
 void TextInputPlugin::MaliitShowInputMethod() {
   if (!maliit_server_) {
     return;
@@ -400,6 +414,7 @@ void TextInputPlugin::MaliitHideInputMethod() {
     ELINUX_LOG(ERROR) << "Unable to hide Maliit: " << error->message;
     g_clear_error(&error);
   }
+  delegate_->UpdateVirtualKeyboardArea(0, 0, 0, 0);
 }
 
 void TextInputPlugin::InitMaliitConnection() {
@@ -433,6 +448,8 @@ void TextInputPlugin::InitMaliitConnection() {
                    G_CALLBACK(MaliitHandleUpdatePreedit), this);
   g_signal_connect(maliit_context_, "handle-key-event",
                    G_CALLBACK(MaliitHandleKeyEvent), this);
+  g_signal_connect(maliit_context_, "handle-update-input-method-area",
+                   G_CALLBACK(MaliitHandleUpdateInputMethodArea), this);
 }
 
 }  // namespace flutter

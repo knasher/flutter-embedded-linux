@@ -86,6 +86,15 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
                                    const std::string& input_type = "") override;
 
   // |FlutterWindowBindingHandler|
+  PhysicalViewInsets GetViewInsets() override;
+
+  // |FlutterWindowBindingHandler|
+  void UpdateVirtualKeyboardArea(int32_t x,
+                                 int32_t y,
+                                 int32_t width,
+                                 int32_t height) override;
+
+  // |FlutterWindowBindingHandler|
   std::string GetClipboardData() override;
 
   // |FlutterWindowBindingHandler|
@@ -229,6 +238,7 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   int32_t output_physical_width_mm_ = 0;
   int32_t output_mode_width_ = 0;
   bool device_pixel_ratio_locked_ = false;
+  double keyboard_inset_bottom_ = 0;
 };
 
 }  // namespace flutter

@@ -62,6 +62,14 @@ class TextInputPlugin {
                                        int count,
                                        guchar request_type,
                                        gpointer user_data);
+  static gboolean MaliitHandleUpdateInputMethodArea(
+      MaliitContext* obj,
+      GDBusMethodInvocation* invocation,
+      gint x,
+      gint y,
+      gint width,
+      gint height,
+      gpointer user_data);
 
   // Sends the current state of the given model to the Flutter engine.
   void SendStateUpdate(const TextInputModel& model);

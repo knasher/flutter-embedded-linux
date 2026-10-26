@@ -105,6 +105,12 @@ void FlutterELinuxView::OnWindowSizeChanged(size_t width_px,
   SendWindowMetrics(width_px, height_px, binding_handler_->GetDpiScale());
 }
 
+void FlutterELinuxView::OnWindowMetricsChanged() const {
+  PhysicalWindowBounds bounds = binding_handler_->GetPhysicalWindowBounds();
+  SendWindowMetrics(bounds.width, bounds.height,
+                    binding_handler_->GetDpiScale());
+}
+
 void FlutterELinuxView::OnPointerMove(double x_px, double y_px) {
   auto trimmed_xy = GetPointerRotation(x_px, y_px);
   SendPointerMove(trimmed_xy.first, trimmed_xy.second);
@@ -378,6 +384,11 @@ void FlutterELinuxView::SendWindowMetrics(size_t width_px,
   event.width = width_px;
   event.height = height_px;
   event.pixel_ratio = dpiScale;
+  const auto insets = binding_handler_->GetViewInsets();
+  event.physical_view_inset_top = insets.top;
+  event.physical_view_inset_right = insets.right;
+  event.physical_view_inset_bottom = insets.bottom;
+  event.physical_view_inset_left = insets.left;
   engine_->SendWindowMetricsEvent(event);
 }
 

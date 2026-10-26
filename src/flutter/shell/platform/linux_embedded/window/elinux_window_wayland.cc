@@ -1600,6 +1600,37 @@ void ELinuxWindowWayland::DestroyRenderSurface() {
   }
 }
 
+PhysicalViewInsets ELinuxWindowWayland::GetViewInsets() {
+  return {.bottom = keyboard_inset_bottom_};
+}
+
+void ELinuxWindowWayland::UpdateVirtualKeyboardArea(int32_t x,
+                                                    int32_t y,
+                                                    int32_t width,
+                                                    int32_t height) {
+  double inset = 0.0;
+  const int32_t win_h = static_cast<int32_t>(GetCurrentHeight());
+  if (width > 0 && height > 0 && win_h > 0) {
+    if (y > 0 && y < win_h) {
+      inset = static_cast<double>(win_h - y);
+    } else {
+      inset = static_cast<double>(height);
+    }
+    // Extra space for rounded-corner / home-indicator overlap.
+    inset += 32.0;
+    if (inset > win_h) {
+      inset = win_h;
+    }
+  }
+  if (inset == keyboard_inset_bottom_) {
+    return;
+  }
+  keyboard_inset_bottom_ = inset;
+  if (binding_handler_delegate_) {
+    binding_handler_delegate_->OnWindowMetricsChanged();
+  }
+}
+
 void ELinuxWindowWayland::UpdateVirtualKeyboardStatus(
     const bool show,
     const std::string& input_type) {

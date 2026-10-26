@@ -22,6 +22,13 @@ struct PhysicalWindowBounds {
   size_t height;
 };
 
+struct PhysicalViewInsets {
+  double top = 0;
+  double right = 0;
+  double bottom = 0;
+  double left = 0;
+};
+
 using ELinuxRenderSurfaceTarget = SurfaceGl;
 
 // Abstract class for binding Linux embedded platform windows to Flutter views.
@@ -76,6 +83,13 @@ class WindowBindingHandler {
   virtual void UpdateVirtualKeyboardStatus(
       const bool show,
       const std::string& input_type = "") = 0;
+
+  virtual PhysicalViewInsets GetViewInsets() { return {}; }
+
+  virtual void UpdateVirtualKeyboardArea(int32_t x,
+                                         int32_t y,
+                                         int32_t width,
+                                         int32_t height) {}
 
   // Returns the clipboard data.
   virtual std::string GetClipboardData() = 0;

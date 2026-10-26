@@ -17,6 +17,8 @@ class WindowBindingHandlerDelegate {
   // @param[in] height_px      Physical height of the window.
   virtual void OnWindowSizeChanged(size_t width_px, size_t height_px) const = 0;
 
+  virtual void OnWindowMetricsChanged() const {}
+
   // Notifies delegate that backing window mouse has moved. Typically called by
   // currently configured WindowBindingHandler
   // @param[in] x_px The x coordinate of the pointer event in physical pixels.
