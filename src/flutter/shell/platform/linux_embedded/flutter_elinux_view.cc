@@ -212,6 +212,11 @@ void FlutterELinuxView::OnTouchUp(uint32_t time, int32_t id) {
       .view_id = flutter::kFlutterImplicitViewId,
   };
   engine_->SendPointerEvent(event);
+  event.phase = FlutterPointerPhase::kRemove;
+  engine_->SendPointerEvent(event);
+  point->valid = false;
+  point->id = -1;
+  point->event_mask = 0;
 }
 
 void FlutterELinuxView::OnTouchMotion(uint32_t time,
@@ -261,7 +266,38 @@ void FlutterELinuxView::OnTouchMotion(uint32_t time,
   engine_->SendPointerEvent(event);
 }
 
-void FlutterELinuxView::OnTouchCancel() {}
+void FlutterELinuxView::OnTouchCancel() {
+  const size_t nmemb = sizeof(touch_event_) / sizeof(struct touch_point);
+  for (size_t i = 0; i < nmemb; ++i) {
+    auto* point = &touch_event_.points[i];
+    if (!point->valid) {
+      continue;
+    }
+    FlutterPointerEvent event = {
+        .struct_size = sizeof(event),
+        .phase = FlutterPointerPhase::kUp,
+        .timestamp = 0,
+        .x = point->x,
+        .y = point->y,
+        .device = point->id,
+        .signal_kind = kFlutterPointerSignalKindNone,
+        .scroll_delta_x = 0,
+        .scroll_delta_y = 0,
+        .device_kind = kFlutterPointerDeviceKindTouch,
+        .buttons = 0,
+        .view_id = flutter::kFlutterImplicitViewId,
+    };
+    if (point->event_mask == TouchEvent::kDown ||
+        point->event_mask == TouchEvent::kMotion) {
+      engine_->SendPointerEvent(event);
+    }
+    event.phase = FlutterPointerPhase::kRemove;
+    engine_->SendPointerEvent(event);
+    point->valid = false;
+    point->id = -1;
+    point->event_mask = 0;
+  }
+}
 
 void FlutterELinuxView::OnKeyMap(uint32_t format, int fd, uint32_t size) {
   keyboard_handler_->OnKeymap(format, fd, size);
@@ -315,7 +351,7 @@ FlutterELinuxView::touch_point* FlutterELinuxView::GgeTouchPoint(int32_t id) {
   const size_t nmemb = sizeof(touch_event_) / sizeof(struct touch_point);
   int invalid = -1;
   for (size_t i = 0; i < nmemb; ++i) {
-    if (touch_event_.points[i].id == id) {
+    if (touch_event_.points[i].valid && touch_event_.points[i].id == id) {
       return &touch_event_.points[i];
     }
     if (invalid == -1 && !touch_event_.points[i].valid) {
