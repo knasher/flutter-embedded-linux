@@ -23,6 +23,7 @@
 // wayland-scanner.
 extern "C" {
 #include "wayland/protocols/presentation-time-protocol.h"
+#include "wayland/protocols/qt-windowmanager-client-protocol.h"
 #include "wayland/protocols/surface-extension-client-protocol.h"
 #include "wayland/protocols/text-input-unstable-v1-client-protocol.h"
 #include "wayland/protocols/text-input-unstable-v3-client-protocol.h"
@@ -110,6 +111,9 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   void SetCoverFrame(int32_t width,
                      int32_t height,
                      const uint8_t* rgba) override;
+
+  // |FlutterWindowBindingHandler|
+  bool OpenUrl(const std::string& url) override;
 
   // |FlutterWindowBindingHandler|
   void UpdateVirtualKeyboardArea(int32_t x,
@@ -286,6 +290,9 @@ class ELinuxWindowWayland : public ELinuxWindow, public WindowBindingHandler {
   wl_shell_surface* wl_shell_surface_ = nullptr;
   qt_surface_extension* qt_surface_extension_ = nullptr;
   qt_extended_surface* qt_extended_surface_ = nullptr;
+  // Lipstick opens URLs for apps through it, as for Qt apps. Its events
+  // (hints, quit) aren't needed, so it has no listener and they're dropped.
+  qt_windowmanager* qt_windowmanager_ = nullptr;
   bool shown_as_cover_ = false;
   // Allowed wl_output transforms, most preferred first; empty allows any.
   std::vector<int32_t> preferred_transforms_;

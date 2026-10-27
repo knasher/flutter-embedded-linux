@@ -92,6 +92,8 @@ void FlutterELinuxView::SetEngine(std::unique_ptr<FlutterELinuxEngine> engine) {
       internal_plugin_messenger, binding_handler_.get());
   cover_handler_ = std::make_unique<flutter::CoverPlugin>(
       internal_plugin_messenger, binding_handler_.get());
+  open_url_handler_ = std::make_unique<flutter::OpenUrlPlugin>(
+      internal_plugin_messenger, binding_handler_.get());
 
   PhysicalWindowBounds bounds = binding_handler_->GetPhysicalWindowBounds();
   SendWindowMetrics(bounds.width, bounds.height,

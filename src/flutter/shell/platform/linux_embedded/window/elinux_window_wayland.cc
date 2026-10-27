@@ -1483,6 +1483,11 @@ ELinuxWindowWayland::~ELinuxWindowWayland() {
     qt_surface_extension_ = nullptr;
   }
 
+  if (qt_windowmanager_) {
+    qt_windowmanager_destroy(qt_windowmanager_);
+    qt_windowmanager_ = nullptr;
+  }
+
   if (wl_shell_) {
     wl_shell_destroy(wl_shell_);
     wl_shell_ = nullptr;
@@ -2042,6 +2047,12 @@ void ELinuxWindowWayland::WlRegistryHandler(wl_registry* wl_registry,
     return;
   }
 
+  if (!strcmp(interface, qt_windowmanager_interface.name)) {
+    qt_windowmanager_ = static_cast<decltype(qt_windowmanager_)>(
+        wl_registry_bind(wl_registry, name, &qt_windowmanager_interface, 1));
+    return;
+  }
+
   if (!strcmp(interface, wl_seat_interface.name)) {
     constexpr uint32_t kMaxVersion = 4;
     auto [inserted, _] =
@@ -2568,6 +2579,31 @@ void ELinuxWindowWayland::SetCoverActions(const std::string& actions) {
   if (qt_extended_surface_) {
     SetStringWindowProperty(qt_extended_surface_, "_APP_COVER_ACTION", actions);
   }
+}
+
+bool ELinuxWindowWayland::OpenUrl(const std::string& url) {
+  if (!qt_windowmanager_ || url.empty() ||
+      url.find('\0') != std::string::npos) {
+    return false;
+  }
+  // Sent in parts, as Qt does, to stay well under Wayland's message size.
+  // Lipstick joins them up to the one with remaining set to 0. Parts end on
+  // whole UTF-8 characters, since each is a string of its own.
+  constexpr size_t kPartSize = 128;
+  size_t start = 0;
+  while (start < url.size()) {
+    size_t end = std::min(start + kPartSize, url.size());
+    while (end < url.size() &&
+           (static_cast<unsigned char>(url[end]) & 0xc0) == 0x80) {
+      end--;
+    }
+    const uint32_t remaining = end < url.size() ? 1 : 0;
+    qt_windowmanager_open_url(qt_windowmanager_, remaining,
+                              url.substr(start, end - start).c_str());
+    start = end;
+  }
+  wl_display_flush(wl_display_);
+  return true;
 }
 
 bool ELinuxWindowWayland::IsTransformAllowed(int32_t transform) const {

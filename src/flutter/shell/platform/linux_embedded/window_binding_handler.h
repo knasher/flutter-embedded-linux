@@ -150,6 +150,10 @@ class WindowBindingHandler {
                              int32_t height,
                              const uint8_t* rgba) {}
 
+  // Asks the compositor to open |url| in the app that handles it. Returns
+  // false if the compositor can't be asked.
+  virtual bool OpenUrl(const std::string& url) { return false; }
+
   // Returns the clipboard data.
   virtual std::string GetClipboardData() = 0;
 

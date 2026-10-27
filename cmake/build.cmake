@@ -74,6 +74,12 @@ else()
     CODE_FILE "${_wayland_protocols_src_dir}/surface-extension-protocol.c"
     HEADER_FILE "${_wayland_protocols_src_dir}/surface-extension-client-protocol.h")
 
+  # Qt window manager extension (open_url), also from Lipstick.
+  generate_wayland_client_protocol(
+    PROTOCOL_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/qtwayland/qt-windowmanager.xml"
+    CODE_FILE "${_wayland_protocols_src_dir}/qt-windowmanager-protocol.c"
+    HEADER_FILE "${_wayland_protocols_src_dir}/qt-windowmanager-client-protocol.h")
+
   add_definitions(-DFLUTTER_TARGET_BACKEND_WAYLAND)
   add_definitions(-DDISPLAY_BACKEND_TYPE_WAYLAND)
   set(DISPLAY_BACKEND_SRC
@@ -83,6 +89,7 @@ else()
     "${_wayland_protocols_src_dir}/presentation-time-protocol.c"
     "${_wayland_protocols_src_dir}/xdg-decoration-unstable-v1-protocol.c"
     "${_wayland_protocols_src_dir}/surface-extension-protocol.c"
+    "${_wayland_protocols_src_dir}/qt-windowmanager-protocol.c"
     "src/flutter/shell/platform/linux_embedded/window/cover_window_wayland.cc"
     "src/flutter/shell/platform/linux_embedded/window/elinux_window_wayland.cc"
     "src/flutter/shell/platform/linux_embedded/window/native_window_wayland.cc"
@@ -166,6 +173,7 @@ set(ELINUX_COMMON_SRC
   "src/flutter/shell/platform/linux_embedded/plugins/lifecycle_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/mouse_cursor_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/navigation_plugin.cc"
+  "src/flutter/shell/platform/linux_embedded/plugins/open_url_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/platform_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/platform_views_plugin.cc"
   "src/flutter/shell/platform/linux_embedded/plugins/settings_plugin.cc"

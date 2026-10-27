@@ -20,6 +20,7 @@
 #include "flutter/shell/platform/linux_embedded/plugins/lifecycle_plugin.h"
 #include "flutter/shell/platform/linux_embedded/plugins/mouse_cursor_plugin.h"
 #include "flutter/shell/platform/linux_embedded/plugins/navigation_plugin.h"
+#include "flutter/shell/platform/linux_embedded/plugins/open_url_plugin.h"
 #include "flutter/shell/platform/linux_embedded/plugins/platform_plugin.h"
 #include "flutter/shell/platform/linux_embedded/plugins/platform_views_plugin.h"
 #include "flutter/shell/platform/linux_embedded/plugins/settings_plugin.h"
@@ -329,6 +330,9 @@ class FlutterELinuxView : public WindowBindingHandlerDelegate {
 
   // Handler for flutter-sfos/cover channel.
   std::unique_ptr<flutter::CoverPlugin> cover_handler_;
+
+  // Handler for flutter-sfos/open_url channel.
+  std::unique_ptr<flutter::OpenUrlPlugin> open_url_handler_;
 
   // Currently configured WindowBindingHandler for view.
   std::unique_ptr<flutter::WindowBindingHandler> binding_handler_;
