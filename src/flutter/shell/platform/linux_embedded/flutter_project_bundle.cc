@@ -6,6 +6,8 @@
 
 #include <unistd.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -91,15 +93,25 @@ void FlutterProjectBundle::SetSwitches(
 }
 
 const std::vector<std::string> FlutterProjectBundle::GetSwitches() {
-  if (engine_switches_.size() == 0) {
-    return GetSwitchesFromEnvironment();
-  }
   std::vector<std::string> switches;
   switches.insert(switches.end(), engine_switches_.begin(),
                   engine_switches_.end());
 
   auto env_switches = GetSwitchesFromEnvironment();
   switches.insert(switches.end(), env_switches.begin(), env_switches.end());
+
+  // Render with Impeller, as Flutter does on iOS and Android, unless
+  // FLUTTER_SFOS_IMPELLER=0 asks for Skia or a switch already chose. Release
+  // builds ignore the engine switches in the environment, so this is the way
+  // to choose there.
+  const char* impeller = std::getenv("FLUTTER_SFOS_IMPELLER");
+  const bool chosen =
+      std::any_of(switches.begin(), switches.end(), [](const std::string& s) {
+        return s.rfind("--enable-impeller", 0) == 0;
+      });
+  if (!chosen && (!impeller || std::string(impeller) != "0")) {
+    switches.push_back("--enable-impeller=true");
+  }
 
   return switches;
 }
