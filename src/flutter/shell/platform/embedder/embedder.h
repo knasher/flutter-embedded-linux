@@ -902,6 +902,15 @@ typedef struct {
 /// stable until the Flutter application restarts.
 typedef uint64_t FlutterEngineDisplayId;
 
+/// Physical edge insets (padding, view insets, or system gesture insets) in
+/// physical pixels.
+typedef struct {
+  double left;
+  double top;
+  double right;
+  double bottom;
+} FlutterEdgeInsets;
+
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterWindowMetricsEvent).
   size_t struct_size;
@@ -927,6 +936,20 @@ typedef struct {
   FlutterEngineDisplayId display_id;
   /// The view that this event is describing.
   int64_t view_id;
+  /// If `true`, the window has size constraints.
+  /// If `false`, the constraint values are ignored.
+  bool has_constraints;
+  /// Minimum physical width of the window.
+  size_t min_width_constraint;
+  /// Minimum physical height of the window.
+  size_t min_height_constraint;
+  /// Maximum physical width of the window.
+  size_t max_width_constraint;
+  /// Maximum physical height of the window.
+  size_t max_height_constraint;
+  /// Safe-area padding (status bar, navigation bar) in physical pixels.
+  /// Needs an engine with the view padding patch; others ignore it.
+  FlutterEdgeInsets physical_padding;
 } FlutterWindowMetricsEvent;
 
 typedef struct {
