@@ -6,6 +6,11 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
+// From GLES2/gl2ext.h, which GLES3 builds don't include.
+#ifndef GL_TEXTURE_EXTERNAL_OES
+#define GL_TEXTURE_EXTERNAL_OES 0x8D65
+#endif
+
 namespace flutter {
 
 struct ExternalTextureEGLImageState {
@@ -36,8 +41,10 @@ bool ExternalTextureEGLImage::PopulateTexture(
     return false;
   }
 
-  // Populate the texture object used by the engine.
-  opengl_texture->target = GL_TEXTURE_2D;
+  // Populate the texture object used by the engine. The image is bound as an
+  // external texture: that works for any EGLImage, and is the only way to
+  // sample a YUV one, such as a hardware video decoder's frame.
+  opengl_texture->target = GL_TEXTURE_EXTERNAL_OES;
   opengl_texture->name = state_->gl_texture;
 #ifdef USE_GLES3
   opengl_texture->format = GL_RGBA8;
@@ -69,15 +76,19 @@ bool ExternalTextureEGLImage::GetEGLImage(size_t& width,
   if (state_->gl_texture == 0) {
     gl_.glGenTextures(1, &state_->gl_texture);
 
-    gl_.glBindTexture(GL_TEXTURE_2D, state_->gl_texture);
-    gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    gl_.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl_.glBindTexture(GL_TEXTURE_EXTERNAL_OES, state_->gl_texture);
+    gl_.glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S,
+                        GL_CLAMP_TO_EDGE);
+    gl_.glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T,
+                        GL_CLAMP_TO_EDGE);
+    gl_.glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER,
+                        GL_LINEAR);
+    gl_.glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER,
+                        GL_LINEAR);
   } else {
-    gl_.glBindTexture(GL_TEXTURE_2D, state_->gl_texture);
+    gl_.glBindTexture(GL_TEXTURE_EXTERNAL_OES, state_->gl_texture);
   }
-  gl_.glEGLImageTargetTexture2DOES(GL_TEXTURE_2D,
+  gl_.glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES,
                                    (EGLImageKHR)egl_image->egl_image);
 
   if (egl_image->release_callback) {
