@@ -18,6 +18,7 @@ constexpr int kMessageVersion = 1;
 
 constexpr char kVersion[] = "version";
 constexpr char kPadding[] = "padding";
+constexpr char kInMetrics[] = "in_metrics";
 constexpr char kCutouts[] = "cutouts";
 constexpr char kTop[] = "top";
 constexpr char kRight[] = "right";
@@ -48,6 +49,11 @@ void DisplayCutoutPlugin::SendDisplayCutouts() {
   padding.AddMember(kBottom, cutouts.padding.bottom, allocator);
   padding.AddMember(kLeft, cutouts.padding.left, allocator);
   message.AddMember(kPadding, padding, allocator);
+#ifdef FLUTTER_SFOS_VIEW_PADDING
+  // The engine reports the padding too (view padding), so apps already get
+  // it in MediaQuery.padding and mustn't add it again.
+  message.AddMember(kInMetrics, true, allocator);
+#endif
 
   rapidjson::Value rects(rapidjson::kArrayType);
   for (const auto& r : cutouts.rects) {

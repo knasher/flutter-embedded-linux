@@ -137,6 +137,8 @@ void FlutterELinuxView::OnContentOrientationChanged() {
   if (textinput_handler_) {
     textinput_handler_->OnContentOrientationChanged();
   }
+  // Turning upside down keeps the size but moves the cut-out padding.
+  OnWindowMetricsChanged();
   if (display_cutout_handler_) {
     display_cutout_handler_->SendDisplayCutouts();
   }
@@ -449,6 +451,13 @@ void FlutterELinuxView::SendWindowMetrics(size_t width_px,
   event.physical_view_inset_right = insets.right;
   event.physical_view_inset_bottom = insets.bottom;
   event.physical_view_inset_left = insets.left;
+  // The display cut-outs, so MediaQuery.padding and SafeArea avoid them.
+  // Engines without the view padding patch ignore these fields.
+  const auto padding = binding_handler_->GetDisplayCutouts().padding;
+  event.physical_view_padding_top = padding.top;
+  event.physical_view_padding_right = padding.right;
+  event.physical_view_padding_bottom = padding.bottom;
+  event.physical_view_padding_left = padding.left;
   engine_->SendWindowMetricsEvent(event);
 }
 

@@ -108,6 +108,11 @@ if(USE_DIRTY_REGION_MANAGEMENT)
   add_definitions(-DUSE_OPENGL_DIRTY_REGION_MANAGEMENT)
 endif()
 
+# The engine reports the cut-out padding the embedder sends (view padding).
+if(FLUTTER_SFOS_VIEW_PADDING)
+  add_definitions(-DFLUTTER_SFOS_VIEW_PADDING)
+endif()
+
 # OpenGL ES version.
 if(USE_GLES3)
   add_definitions(-DUSE_GLES3)

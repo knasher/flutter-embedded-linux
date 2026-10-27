@@ -927,6 +927,28 @@ typedef struct {
   FlutterEngineDisplayId display_id;
   /// The view that this event is describing.
   int64_t view_id;
+  /// If `true`, the window has size constraints.
+  /// If `false`, the constraint values are ignored.
+  bool has_constraints;
+  /// Minimum physical width of the window.
+  size_t min_width_constraint;
+  /// Minimum physical height of the window.
+  size_t min_height_constraint;
+  /// Maximum physical width of the window.
+  size_t max_width_constraint;
+  /// Maximum physical height of the window.
+  size_t max_height_constraint;
+  /// Top padding of window: the part covered by system UI or a display
+  /// cut-out, which content should avoid. Flutter reports it as
+  /// `viewPadding`. Needs an engine with the view padding patch; others
+  /// ignore it.
+  double physical_view_padding_top;
+  /// Right padding of window.
+  double physical_view_padding_right;
+  /// Bottom padding of window.
+  double physical_view_padding_bottom;
+  /// Left padding of window.
+  double physical_view_padding_left;
 } FlutterWindowMetricsEvent;
 
 typedef struct {
