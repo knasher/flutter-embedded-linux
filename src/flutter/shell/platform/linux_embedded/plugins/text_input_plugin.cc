@@ -6,7 +6,9 @@
 
 #include <linux/input-event-codes.h>
 
+#include <codecvt>
 #include <iostream>
+#include <locale>
 #include <map>
 
 #include "flutter/shell/platform/common/json_method_codec.h"
@@ -36,6 +38,9 @@ constexpr char kShowMethod[] = "TextInput.show";
 constexpr char kHideMethod[] = "TextInput.hide";
 
 constexpr char kMultilineInputType[] = "TextInputType.multiline";
+constexpr char kNoneInputType[] = "TextInputType.none";
+constexpr char kVisiblePasswordInputType[] = "TextInputType.visiblePassword";
+constexpr char kNoCapitalization[] = "TextCapitalization.none";
 
 constexpr char kUpdateEditingStateMethod[] =
     "TextInputClient.updateEditingState";
@@ -44,6 +49,10 @@ constexpr char kPerformActionMethod[] = "TextInputClient.performAction";
 constexpr char kTextInputAction[] = "inputAction";
 constexpr char kTextInputType[] = "inputType";
 constexpr char kTextInputTypeName[] = "name";
+constexpr char kObscureText[] = "obscureText";
+constexpr char kAutocorrect[] = "autocorrect";
+constexpr char kEnableSuggestions[] = "enableSuggestions";
+constexpr char kTextCapitalization[] = "textCapitalization";
 constexpr char kComposingBaseKey[] = "composingBase";
 constexpr char kComposingExtentKey[] = "composingExtent";
 constexpr char kSelectionAffinityKey[] = "selectionAffinity";
@@ -88,6 +97,54 @@ const std::map<int, int> kQtKeyToLinuxEvent = {
     {Qt::Key_Right, KEY_RIGHT},    {Qt::Key_Down, KEY_DOWN},
     {Qt::Key_PageUp, KEY_PAGEUP},  {Qt::Key_PageDown, KEY_PAGEDOWN},
 };
+
+namespace Maliit {
+enum TextContentType {
+  FreeTextContentType = 0,
+  NumberContentType = 1,
+  PhoneNumberContentType = 2,
+  EmailContentType = 3,
+  UrlContentType = 4
+};
+}  // namespace Maliit
+
+// The keyboard's layouts: a number pad, a dial pad, and its usual keys with
+// "@" or "/" in place of the comma for email addresses and links.
+const std::map<std::string, int> kInputTypeToContentType = {
+    {"TextInputType.number", Maliit::NumberContentType},
+    {"TextInputType.phone", Maliit::PhoneNumberContentType},
+    {"TextInputType.emailAddress", Maliit::EmailContentType},
+    {"TextInputType.url", Maliit::UrlContentType},
+};
+
+// Enter key icons from the Sailfish theme, as Silica apps set them. Other
+// actions keep the keyboard's own enter key.
+const std::map<std::string, std::string> kInputActionToEnterKeyIcon = {
+    {"TextInputAction.done", "image://theme/icon-m-enter-accept"},
+    {"TextInputAction.go", "image://theme/icon-m-enter-accept"},
+    {"TextInputAction.join", "image://theme/icon-m-enter-accept"},
+    {"TextInputAction.route", "image://theme/icon-m-enter-accept"},
+    {"TextInputAction.next", "image://theme/icon-m-enter-next"},
+    {"TextInputAction.continueAction", "image://theme/icon-m-enter-next"},
+    {"TextInputAction.search", "image://theme/icon-m-search"},
+    {"TextInputAction.send", "image://theme/icon-m-send"},
+};
+
+bool GetBool(const rapidjson::Value& object, const char* key, bool fallback) {
+  auto member = object.FindMember(key);
+  if (member == object.MemberEnd() || !member->value.IsBool()) {
+    return fallback;
+  }
+  return member->value.GetBool();
+}
+
+std::string GetString(const rapidjson::Value& object, const char* key) {
+  auto member = object.FindMember(key);
+  if (member == object.MemberEnd() || !member->value.IsString()) {
+    return "";
+  }
+  return member->value.GetString();
+}
 }  // namespace
 
 void TextInputPlugin::OnKeyPressed(uint32_t keycode, uint32_t code_point) {
@@ -159,8 +216,14 @@ void TextInputPlugin::HandleMethodCall(
   const std::string& method = method_call.method_name();
 
   if (method.compare(kShowMethod) == 0) {
-    delegate_->UpdateVirtualKeyboardStatus(true, input_type_);
-    MaliitShowInputMethod();
+    if (input_type_ == kNoneInputType) {
+      // The app draws its own keyboard, so ours stays hidden, as on Android.
+      delegate_->UpdateVirtualKeyboardStatus(false, input_type_);
+      MaliitHideInputMethod();
+    } else {
+      delegate_->UpdateVirtualKeyboardStatus(true, input_type_);
+      MaliitShowInputMethod();
+    }
   } else if (method.compare(kHideMethod) == 0) {
     delegate_->UpdateVirtualKeyboardStatus(false, input_type_);
     MaliitHideInputMethod();
@@ -204,6 +267,31 @@ void TextInputPlugin::HandleMethodCall(
         input_type_ = input_type_json->value.GetString();
       }
     }
+
+    // What the keyboard is told when it's shown for this client. Passwords
+    // get no suggestions, corrections or capitals, as in Silica's
+    // PasswordField.
+    hidden_text_ = GetBool(client_config, kObscureText, false);
+    bool plain = !hidden_text_ && input_type_ != kVisiblePasswordInputType;
+    prediction_enabled_ =
+        plain && GetBool(client_config, kEnableSuggestions, true);
+    correction_enabled_ = plain && GetBool(client_config, kAutocorrect, true);
+    std::string capitalization =
+        GetString(client_config, kTextCapitalization);
+    // The keyboard only capitalises the start of sentences, so words and
+    // characters get that too.
+    autocapitalization_enabled_ =
+        plain && !capitalization.empty() && capitalization != kNoCapitalization;
+    auto content_type = kInputTypeToContentType.find(input_type_);
+    content_type_ = content_type != kInputTypeToContentType.end()
+                        ? content_type->second
+                        : Maliit::FreeTextContentType;
+    auto enter_key_icon = kInputActionToEnterKeyIcon.find(input_action_);
+    enter_key_icon_ = enter_key_icon != kInputActionToEnterKeyIcon.end()
+                          ? enter_key_icon->second
+                          : "";
+    focus_changed_ = true;
+
     active_model_ = std::make_unique<TextInputModel>();
   } else if (method.compare(kSetEditingStateMethod) == 0) {
     if (!method_call.arguments() || method_call.arguments()->IsNull()) {
@@ -241,6 +329,7 @@ void TextInputPlugin::HandleMethodCall(
     }
     active_model_->SetText(text->value.GetString());
     active_model_->SetSelection(TextRange(base, extent));
+    MaliitUpdateWidgetInformation(false);
   } else {
     result->NotImplemented();
     return;
@@ -269,6 +358,7 @@ void TextInputPlugin::SendStateUpdate(const TextInputModel& model) {
   args->PushBack(editing_state, allocator);
 
   channel_->InvokeMethod(kUpdateEditingStateMethod, std::move(args));
+  MaliitUpdateWidgetInformation(false);
 }
 
 void TextInputPlugin::EnterPressed(TextInputModel* model) {
@@ -394,6 +484,12 @@ void TextInputPlugin::MaliitShowInputMethod() {
     return;
   }
   MaliitSendAppOrientation();
+  bool focus_changed = focus_changed_;
+  focus_changed_ = false;
+  if (focus_changed) {
+    MaliitSetEnterKey();
+  }
+  MaliitUpdateWidgetInformation(focus_changed);
   if (!maliit_server_call_show_input_method_sync(maliit_server_, nullptr,
                                                  &error)) {
     ELINUX_LOG(ERROR) << "Unable to show Maliit: " << error->message;
@@ -416,6 +512,69 @@ void TextInputPlugin::MaliitHideInputMethod() {
     g_clear_error(&error);
   }
   delegate_->UpdateVirtualKeyboardArea(0, 0, 0, 0);
+}
+
+void TextInputPlugin::MaliitUpdateWidgetInformation(bool focus_changed) {
+  // A new client's information is sent when the keyboard is shown for it.
+  if (!maliit_server_ || !active_model_ || focus_changed_) {
+    return;
+  }
+  GVariantBuilder state;
+  g_variant_builder_init(&state, G_VARIANT_TYPE_VARDICT);
+  g_variant_builder_add(&state, "{sv}", "focusState",
+                        g_variant_new_boolean(TRUE));
+  g_variant_builder_add(&state, "{sv}", "contentType",
+                        g_variant_new_int32(content_type_));
+  g_variant_builder_add(&state, "{sv}", "hiddenText",
+                        g_variant_new_boolean(hidden_text_));
+  g_variant_builder_add(&state, "{sv}", "predictionEnabled",
+                        g_variant_new_boolean(prediction_enabled_));
+  g_variant_builder_add(&state, "{sv}", "correctionEnabled",
+                        g_variant_new_boolean(correction_enabled_));
+  g_variant_builder_add(&state, "{sv}", "autocapitalizationEnabled",
+                        g_variant_new_boolean(autocapitalization_enabled_));
+  // The attribute extension holding the enter key (MaliitSetEnterKey).
+  g_variant_builder_add(&state, "{sv}", "toolbarId", g_variant_new_int32(0));
+  if (!hidden_text_) {
+    // The text around the cursor, for capitals at the start of sentences
+    // and for suggestions. As Qt does, it leaves out the word being composed,
+    // which the keyboard has already, and counts in UTF-16 code units, as
+    // the model's ranges do.
+    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>
+        converter;
+    std::u16string text = converter.from_bytes(active_model_->GetText());
+    TextRange selection = active_model_->selection();
+    if (active_model_->composing()) {
+      TextRange composing = active_model_->composing_range();
+      text.erase(composing.start(), composing.length());
+      selection = TextRange(composing.start());
+    }
+    g_variant_builder_add(
+        &state, "{sv}", "surroundingText",
+        g_variant_new_string(converter.to_bytes(text).c_str()));
+    g_variant_builder_add(&state, "{sv}", "cursorPosition",
+                          g_variant_new_int32(selection.extent()));
+    g_variant_builder_add(&state, "{sv}", "anchorPosition",
+                          g_variant_new_int32(selection.base()));
+    g_variant_builder_add(&state, "{sv}", "hasSelection",
+                          g_variant_new_boolean(!selection.collapsed()));
+  }
+  // No reply is needed, and calls on the connection keep their order.
+  maliit_server_call_update_widget_information(
+      maliit_server_, g_variant_builder_end(&state), focus_changed, nullptr,
+      nullptr, nullptr);
+}
+
+void TextInputPlugin::MaliitSetEnterKey() {
+  if (!maliit_server_) {
+    return;
+  }
+  // With no icon, the keyboard draws its own enter key. The value goes as a
+  // variant (D-Bus type v).
+  maliit_server_call_set_extended_attribute(
+      maliit_server_, 0, "/keys", "actionKey", "icon",
+      g_variant_new_variant(g_variant_new_string(enter_key_icon_.c_str())),
+      nullptr, nullptr, nullptr);
 }
 
 void TextInputPlugin::OnContentOrientationChanged() {
@@ -450,6 +609,15 @@ void TextInputPlugin::InitMaliitConnection() {
     return;
   }
   g_object_ref(maliit_server_);
+
+  // One attribute extension for every client, as Qt's input context uses,
+  // to set the enter key.
+  if (!maliit_server_call_register_attribute_extension_sync(
+          maliit_server_, 0, "", nullptr, &error)) {
+    ELINUX_LOG(ERROR) << "Unable to register Maliit attribute extension: "
+                      << error->message;
+    g_clear_error(&error);
+  }
 
   maliit_context_ = maliit_get_context_sync(nullptr, &error);
   if (!maliit_context_) {

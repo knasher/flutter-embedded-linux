@@ -36,6 +36,13 @@ class TextInputPlugin {
   void MaliitHideInputMethod();
   void MaliitSendAppOrientation();
 
+  // Tells the keyboard about the client: its field type, its hints and the
+  // text around the cursor.
+  void MaliitUpdateWidgetInformation(bool focus_changed);
+
+  // Sets the enter key's icon for the client.
+  void MaliitSetEnterKey();
+
   static gboolean MaliitHandleIMInitiatedHide(MaliitContext* obj,
                                               GDBusMethodInvocation* invocation,
                                               gpointer user_data);
@@ -103,6 +110,17 @@ class TextInputPlugin {
 
   // The delegate for virtual keyboard updates.
   WindowBindingHandler* delegate_;
+
+  // What the keyboard is told about the client, from its configuration.
+  int content_type_ = 0;
+  bool hidden_text_ = false;
+  bool prediction_enabled_ = true;
+  bool correction_enabled_ = true;
+  bool autocapitalization_enabled_ = false;
+  std::string enter_key_icon_;
+
+  // Whether the keyboard has yet to be shown for the client.
+  bool focus_changed_ = false;
 
   GMainContext* glib_ctx_ = nullptr;
   GMainLoop* glib_loop_ = nullptr;
